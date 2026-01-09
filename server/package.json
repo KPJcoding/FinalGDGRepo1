@@ -2,6 +2,7 @@
     "name": "iiitn-knowledge-hub-server",
     "version": "1.0.0",
     "description": "Backend for IIITN Knowledge Hub Auth",
+    "type": "module",
     "main": "index.js",
     "scripts": {
         "start": "node index.js",

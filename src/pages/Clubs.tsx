@@ -1,16 +1,17 @@
 import { Layout } from "@/components/layout/Layout";
 import { motion } from "framer-motion";
-import { 
-  Users, 
-  Phone, 
-  MessageCircle, 
-  Shield, 
+import {
+  Users,
+  Phone,
+  MessageCircle,
+  Shield,
   ChevronRight,
   ExternalLink,
   Instagram,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
+import { CommunityCalendar } from "@/components/CommunityCalendar";
 
 // Import club logos
 import probeLogo from "@/assets/clubs/probe-logo.jpg";
@@ -183,14 +184,14 @@ function ClubCard({ club, onSelect }: { club: Club; onSelect: (club: Club) => vo
     >
       <div className="flex items-start justify-between mb-4">
         {/* Club Logo */}
-        <motion.div 
+        <motion.div
           whileHover={{ rotate: 5, scale: 1.1 }}
           className="w-16 h-16 rounded-full bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center group-hover:shadow-lg transition-all overflow-hidden border-2 border-border"
         >
           {club.logo ? (
-            <img 
-              src={club.logo} 
-              alt={`${club.name} logo`} 
+            <img
+              src={club.logo}
+              alt={`${club.name} logo`}
               className="w-full h-full object-cover"
             />
           ) : (
@@ -204,11 +205,11 @@ function ClubCard({ club, onSelect }: { club: Club; onSelect: (club: Club) => vo
           </div>
         )}
       </div>
-      
+
       <h3 className="text-lg font-semibold text-foreground mb-1 group-hover:text-sol-cyan transition-colors">{club.name}</h3>
       <p className="text-xs text-sol-cyan mb-2">{club.fullName}</p>
       <p className="text-sm text-muted-foreground mb-4 line-clamp-2">{club.description}</p>
-      
+
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1 text-sm text-muted-foreground">
           <Users className="w-4 h-4" />
@@ -226,7 +227,7 @@ function ClubDetail({ club, onBack }: { club: Club; onBack: () => void }) {
   const formatPhoneForCall = (phone: string) => {
     return phone.replace(/\s/g, '');
   };
-  
+
   return (
     <motion.div
       initial={{ opacity: 0, x: 20 }}
@@ -240,20 +241,20 @@ function ClubDetail({ club, onBack }: { club: Club; onBack: () => void }) {
         <ChevronRight className="w-4 h-4 rotate-180 group-hover:-translate-x-1 transition-transform" />
         Back to all clubs
       </button>
-      
+
       <div className="bg-card border border-border rounded-xl overflow-hidden shadow-lg">
         <div className="gradient-hero-enhanced p-8 text-primary-foreground">
           <div className="flex items-center gap-4">
-            <motion.div 
+            <motion.div
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
               transition={{ type: "spring", stiffness: 200 }}
               className="w-20 h-20 rounded-full bg-primary-foreground/20 flex items-center justify-center backdrop-blur-sm overflow-hidden border-2 border-primary-foreground/30"
             >
               {club.logo ? (
-                <img 
-                  src={club.logo} 
-                  alt={`${club.name} logo`} 
+                <img
+                  src={club.logo}
+                  alt={`${club.name} logo`}
                   className="w-full h-full object-cover"
                 />
               ) : (
@@ -275,9 +276,9 @@ function ClubDetail({ club, onBack }: { club: Club; onBack: () => void }) {
             </div>
           </div>
         </div>
-        
+
         <div className="p-8">
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
@@ -286,8 +287,8 @@ function ClubDetail({ club, onBack }: { club: Club; onBack: () => void }) {
             <h2 className="text-lg font-semibold text-foreground mb-3">About</h2>
             <p className="text-muted-foreground">{club.description}</p>
           </motion.div>
-          
-          <motion.div 
+
+          <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
@@ -295,13 +296,13 @@ function ClubDetail({ club, onBack }: { club: Club; onBack: () => void }) {
           >
             <h2 className="text-lg font-semibold text-foreground mb-4">Club Leadership</h2>
             <div className="grid md:grid-cols-2 gap-4">
-              <motion.div 
+              <motion.div
                 whileHover={{ scale: 1.02 }}
                 className="bg-gradient-to-br from-muted to-muted/50 rounded-lg p-4 border border-border hover:border-sol-cyan/30 transition-all"
               >
                 <div className="text-xs font-medium text-sol-cyan mb-2">Club Lead</div>
                 <div className="font-semibold text-foreground mb-2">{club.lead.name}</div>
-                <a 
+                <a
                   href={`tel:${formatPhoneForCall(club.lead.phone)}`}
                   className="flex items-center gap-2 text-sm text-muted-foreground hover:text-sol-cyan transition-colors group"
                 >
@@ -309,14 +310,14 @@ function ClubDetail({ club, onBack }: { club: Club; onBack: () => void }) {
                   <span className="font-mono">{club.lead.phone}</span>
                 </a>
               </motion.div>
-              
-              <motion.div 
+
+              <motion.div
                 whileHover={{ scale: 1.02 }}
                 className="bg-gradient-to-br from-muted to-muted/50 rounded-lg p-4 border border-border hover:border-sol-cyan/30 transition-all"
               >
                 <div className="text-xs font-medium text-sol-cyan mb-2">Co-Lead</div>
                 <div className="font-semibold text-foreground mb-2">{club.coLead.name}</div>
-                <a 
+                <a
                   href={`tel:${formatPhoneForCall(club.coLead.phone)}`}
                   className="flex items-center gap-2 text-sm text-muted-foreground hover:text-sol-cyan transition-colors group"
                 >
@@ -329,7 +330,7 @@ function ClubDetail({ club, onBack }: { club: Club; onBack: () => void }) {
 
           {/* Instagram Section */}
           {club.instagramLink && (
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.25 }}
@@ -348,8 +349,8 @@ function ClubDetail({ club, onBack }: { club: Club; onBack: () => void }) {
               </a>
             </motion.div>
           )}
-          
-          <motion.div 
+
+          <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
@@ -384,11 +385,11 @@ function ClubDetail({ club, onBack }: { club: Club; onBack: () => void }) {
 export default function Clubs() {
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [selectedClub, setSelectedClub] = useState<Club | null>(null);
-  
+
   const filteredClubs = clubs.filter(
     (club) => selectedCategory === "All" || club.category === selectedCategory
   );
-  
+
   return (
     <Layout>
       <section className="gradient-hero-enhanced text-primary-foreground py-16">
@@ -411,54 +412,64 @@ export default function Clubs() {
           </motion.div>
         </div>
       </section>
-      
+
       <section className="py-12 bg-cyan-gradient min-h-screen">
         <div className="container mx-auto px-4">
-          {selectedClub ? (
-            <ClubDetail club={selectedClub} onBack={() => setSelectedClub(null)} />
-          ) : (
-            <>
-              {/* Category Filter */}
-              <div className="flex flex-wrap gap-2 mb-8">
-                {categories.map((category) => (
-                  <motion.div
-                    key={category}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    <Button
-                      variant={selectedCategory === category ? "accent" : "outline"}
-                      size="sm"
-                      onClick={() => setSelectedCategory(category)}
-                      className="btn-hover filter-hover"
-                    >
-                      {category}
-                    </Button>
-                  </motion.div>
-                ))}
-              </div>
-              
-              {/* Clubs Grid */}
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredClubs.map((club, index) => (
-                  <motion.div
-                    key={club.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                  >
-                    <ClubCard club={club} onSelect={setSelectedClub} />
-                  </motion.div>
-                ))}
-              </div>
-              
-              {filteredClubs.length === 0 && (
-                <div className="text-center py-12">
-                  <p className="text-muted-foreground">No clubs found in this category.</p>
-                </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+            <div className="lg:col-span-2">
+              {selectedClub ? (
+                <ClubDetail club={selectedClub} onBack={() => setSelectedClub(null)} />
+              ) : (
+                <>
+                  {/* Category Filter */}
+                  <div className="flex flex-wrap gap-2 mb-8">
+                    {categories.map((category) => (
+                      <motion.div
+                        key={category}
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        <Button
+                          variant={selectedCategory === category ? "accent" : "outline"}
+                          size="sm"
+                          onClick={() => setSelectedCategory(category)}
+                          className="btn-hover filter-hover"
+                        >
+                          {category}
+                        </Button>
+                      </motion.div>
+                    ))}
+                  </div>
+
+                  {/* Clubs Grid */}
+                  <div className="grid md:grid-cols-2 gap-6">
+                    {filteredClubs.map((club, index) => (
+                      <motion.div
+                        key={club.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                      >
+                        <ClubCard club={club} onSelect={setSelectedClub} />
+                      </motion.div>
+                    ))}
+                  </div>
+
+                  {filteredClubs.length === 0 && (
+                    <div className="text-center py-12">
+                      <p className="text-muted-foreground">No clubs found in this category.</p>
+                    </div>
+                  )}
+                </>
               )}
-            </>
-          )}
+            </div>
+
+            <div className="lg:col-span-1 space-y-6">
+              <div className="bg-card border border-border rounded-xl p-1 sticky top-24">
+                <CommunityCalendar />
+              </div>
+            </div>
+          </div>
         </div>
       </section>
     </Layout>
