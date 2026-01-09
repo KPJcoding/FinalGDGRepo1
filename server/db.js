@@ -42,7 +42,12 @@ export async function getDb() {
       title TEXT NOT NULL,
       content TEXT NOT NULL,
       difficulty TEXT NOT NULL,
+      difficulty_tier TEXT NOT NULL DEFAULT 'Bronze',
       author_id INTEGER NOT NULL,
+      views INTEGER DEFAULT 0,
+      is_verified INTEGER DEFAULT 0,
+      question_upvotes INTEGER DEFAULT 0,
+      question_downvotes INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (author_id) REFERENCES users(id)
     );
@@ -53,6 +58,8 @@ export async function getDb() {
       author_id INTEGER NOT NULL,
       content TEXT NOT NULL,
       is_accepted INTEGER DEFAULT 0,
+      answer_upvotes INTEGER DEFAULT 0,
+      answer_downvotes INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (question_id) REFERENCES questions(id),
       FOREIGN KEY (author_id) REFERENCES users(id)
@@ -75,71 +82,23 @@ export async function getDb() {
       target_type TEXT NOT NULL, -- 'question' or 'answer'
       value INTEGER NOT NULL, -- 1 or -1
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id)
+      last_voted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      UNIQUE(user_id, target_id, target_type)
     );
 
-    -- Community Module Tables
-
-    CREATE TABLE IF NOT EXISTS discussions (
+    CREATE TABLE IF NOT EXISTS question_tags (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT NOT NULL,
-      content TEXT NOT NULL,
-      tags TEXT,
-      author_id INTEGER NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE CASCADE
+      question_id INTEGER NOT NULL,
+      tag_name TEXT NOT NULL,
+      FOREIGN KEY (question_id) REFERENCES questions(id) ON DELETE CASCADE
     );
 
-    CREATE TABLE IF NOT EXISTS discussion_comments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      discussion_id INTEGER NOT NULL,
-      author_id INTEGER NOT NULL,
-      content TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (discussion_id) REFERENCES discussions(id) ON DELETE CASCADE,
-      FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS groups (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      description TEXT,
-      owner_id INTEGER NOT NULL,
-      join_mode TEXT NOT NULL CHECK(join_mode IN ('LINK', 'REQUEST', 'BOTH')),
-      invite_code TEXT UNIQUE,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS group_members (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      group_id INTEGER NOT NULL,
-      user_id INTEGER NOT NULL,
-      joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-      UNIQUE(group_id, user_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS group_invites (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      group_id INTEGER NOT NULL,
-      inviter_id INTEGER NOT NULL,
-      invitee_email TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'ACCEPTED', 'REJECTED')),
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      responded_at DATETIME,
-      FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
-      FOREIGN KEY (inviter_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_discussions_author ON discussions(author_id);
-    CREATE INDEX IF NOT EXISTS idx_discussion_comments_discussion ON discussion_comments(discussion_id);
-    CREATE INDEX IF NOT EXISTS idx_groups_invite_code ON groups(invite_code);
-    CREATE INDEX IF NOT EXISTS idx_group_members_group ON group_members(group_id);
-    CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(user_id);
-    CREATE INDEX IF NOT EXISTS idx_group_invites_email ON group_invites(invitee_email, status);
+    CREATE INDEX IF NOT EXISTS idx_answers_question_id ON answers(question_id);
+    CREATE INDEX IF NOT EXISTS idx_questions_author_id ON questions(author_id);
+    CREATE INDEX IF NOT EXISTS idx_question_tags_question ON question_tags(question_id);
+    CREATE INDEX IF NOT EXISTS idx_question_tags_tag ON question_tags(tag_name);
+    CREATE INDEX IF NOT EXISTS idx_votes_user_target ON votes(user_id, target_id, target_type);
   `);
 
   // Migration: Check for columns
@@ -159,6 +118,58 @@ export async function getDb() {
       console.log("[DB] Migrating: Adding 'is_maintainer_verified' column to 'answers'");
       await dbInstance.exec("ALTER TABLE answers ADD COLUMN is_maintainer_verified INTEGER DEFAULT 0");
     }
+    if (!answerColumns.some(col => col.name === 'answer_upvotes')) {
+      console.log("[DB] Migrating: Adding 'answer_upvotes' column to 'answers'");
+      await dbInstance.exec("ALTER TABLE answers ADD COLUMN answer_upvotes INTEGER DEFAULT 0");
+    }
+    if (!answerColumns.some(col => col.name === 'answer_downvotes')) {
+      console.log("[DB] Migrating: Adding 'answer_downvotes' column to 'answers'");
+      await dbInstance.exec("ALTER TABLE answers ADD COLUMN answer_downvotes INTEGER DEFAULT 0");
+    }
+
+    const questionColumns = await dbInstance.all("PRAGMA table_info(questions)");
+    if (!questionColumns.some(col => col.name === 'difficulty_tier')) {
+      console.log("[DB] Migrating: Adding 'difficulty_tier' column to 'questions'");
+      await dbInstance.exec("ALTER TABLE questions ADD COLUMN difficulty_tier TEXT NOT NULL DEFAULT 'Bronze'");
+    }
+    if (!questionColumns.some(col => col.name === 'views')) {
+      console.log("[DB] Migrating: Adding 'views' column to 'questions'");
+      await dbInstance.exec("ALTER TABLE questions ADD COLUMN views INTEGER DEFAULT 0");
+    }
+    if (!questionColumns.some(col => col.name === 'is_verified')) {
+      console.log("[DB] Migrating: Adding 'is_verified' column to 'questions'");
+      await dbInstance.exec("ALTER TABLE questions ADD COLUMN is_verified INTEGER DEFAULT 0");
+    }
+    if (!questionColumns.some(col => col.name === 'question_upvotes')) {
+      console.log("[DB] Migrating: Adding 'question_upvotes' column to 'questions'");
+      await dbInstance.exec("ALTER TABLE questions ADD COLUMN question_upvotes INTEGER DEFAULT 0");
+    }
+    if (!questionColumns.some(col => col.name === 'question_downvotes')) {
+      console.log("[DB] Migrating: Adding 'question_downvotes' column to 'questions'");
+      await dbInstance.exec("ALTER TABLE questions ADD COLUMN question_downvotes INTEGER DEFAULT 0");
+    }
+
+    const voteColumns = await dbInstance.all("PRAGMA table_info(votes)");
+    if (!voteColumns.some(col => col.name === 'last_voted_at')) {
+      console.log("[DB] Migrating: Adding 'last_voted_at' column to 'votes'");
+      // SQLite doesn't support CURRENT_TIMESTAMP in ALTER TABLE ADD COLUMN
+      await dbInstance.exec("ALTER TABLE votes ADD COLUMN last_voted_at DATETIME");
+      // Update existing rows to use created_at value
+      await dbInstance.exec("UPDATE votes SET last_voted_at = created_at WHERE last_voted_at IS NULL");
+    }
+
+    // Migrate existing difficulty values to difficulty_tier
+    console.log("[DB] Migrating difficulty values to difficulty_tier");
+    await dbInstance.exec(`
+      UPDATE questions 
+      SET difficulty_tier = CASE 
+        WHEN difficulty = 'Easy' THEN 'Bronze'
+        WHEN difficulty = 'Medium' THEN 'Silver'
+        WHEN difficulty = 'Hard' THEN 'Gold'
+        ELSE 'Bronze'
+      END
+      WHERE difficulty_tier = 'Bronze' AND difficulty IN ('Easy', 'Medium', 'Hard')
+    `);
 
   } catch (err) {
     console.warn("[DB] Migration check failed:", err.message);

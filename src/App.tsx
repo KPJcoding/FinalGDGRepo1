@@ -11,6 +11,9 @@ import Leaderboard from "./pages/Leaderboard";
 import SignIn from "./pages/SignIn";
 import GetStarted from "./pages/GetStarted";
 import AnswerQuestion from "./pages/AnswerQuestion";
+import QuestionsPage from "./pages/QuestionsPage";
+import QuestionDetailPage from "./pages/QuestionDetailPage";
+import AskQuestionPage from "./pages/AskQuestionPage";
 import Guidelines from "./pages/Guidelines";
 import ReportIssue from "./pages/ReportIssue";
 import NotFound from "./pages/NotFound";
@@ -34,6 +37,9 @@ const App = () => (
             <Route path="/signin" element={<SignIn />} />
             <Route path="/get-started" element={<GetStarted />} />
             <Route path="/answer" element={<AnswerQuestion />} />
+            <Route path="/questions" element={<QuestionsPage />} />
+            <Route path="/questions/new" element={<AskQuestionPage />} />
+            <Route path="/questions/:id" element={<QuestionDetailPage />} />
             <Route path="/guidelines" element={<Guidelines />} />
             <Route path="/report-issue" element={<ReportIssue />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

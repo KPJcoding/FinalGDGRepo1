@@ -5,6 +5,7 @@ interface User {
     email: string;
     name: string;
     isVerified: boolean;
+    credits?: number;
 }
 
 interface AuthContextType {

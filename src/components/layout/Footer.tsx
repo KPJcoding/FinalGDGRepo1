@@ -8,9 +8,9 @@ export function Footer() {
           {/* Brand */}
           <div className="space-y-4">
             <div className="flex items-center gap-2">
-              <img 
-                src="/sol1-logo.jpg" 
-                alt="SOL-1" 
+              <img
+                src="/sol1-logo.jpg"
+                alt="SOL-1"
                 className="w-10 h-10 rounded-lg object-contain"
               />
               <span className="font-bold text-lg">Sol-1</span>
@@ -26,7 +26,7 @@ export function Footer() {
             <ul className="space-y-2 text-sm text-primary-foreground/70">
               <li><Link to="/explore" className="hover:text-primary-foreground transition-colors">Explore Questions</Link></li>
               <li><Link to="/contribute" className="hover:text-primary-foreground transition-colors">Contribute Answers</Link></li>
-              <li><Link to="/community" className="hover:text-primary-foreground transition-colors">Community</Link></li>
+              <li><Link to="/clubs" className="hover:text-primary-foreground transition-colors">Clubs</Link></li>
               <li><Link to="/leaderboard" className="hover:text-primary-foreground transition-colors">Leaderboard</Link></li>
             </ul>
           </div>
@@ -49,9 +49,9 @@ export function Footer() {
               <li>Behind Br. Sheshrao Wankhede Shetkari Sahkari Soot Girni</li>
               <li>Nagpur, Maharashtra 441108</li>
               <li className="pt-2">
-                <a 
-                  href="https://www.iiitn.ac.in/pages/directory" 
-                  target="_blank" 
+                <a
+                  href="https://www.iiitn.ac.in/pages/directory"
+                  target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 text-sol-cyan hover:text-primary-foreground transition-colors font-medium"
                 >

@@ -1,9 +1,10 @@
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Search, BookOpen, Users, Trophy, Menu, X, Sparkles, LogOut, Trash2, User } from "lucide-react";
-import { useState } from "react";
+import { Search, BookOpen, Users, Trophy, Menu, X, Sparkles, LogOut, Trash2, User, Coins } from "lucide-react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
+import { TierBadge } from "@/components/qa/TierBadge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +26,29 @@ export function Navigation() {
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { isAuthenticated, user, logout } = useAuth();
+  const [userDetails, setUserDetails] = useState<any>(null);
+
+  // Fetch full user details including tier
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const fetchUserDetails = async () => {
+      try {
+        const token = localStorage.getItem('auth_token');
+        const res = await fetch('http://localhost:3000/users/me', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setUserDetails(data);
+        }
+      } catch (error) {
+        console.error('Failed to fetch user details:', error);
+      }
+    };
+
+    fetchUserDetails();
+  }, [isAuthenticated]);
 
   const handleLogout = () => {
     logout();
@@ -100,13 +124,30 @@ export function Navigation() {
                     {user.name}
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuLabel>My Account</DropdownMenuLabel>
+                <DropdownMenuContent align="end" className="w-64">
+                  <DropdownMenuLabel className="font-normal">
+                    <div className="flex flex-col space-y-1">
+                      <p className="text-sm font-medium leading-none">{user.name}</p>
+                      <p className="text-xs leading-none text-muted-foreground">{user.email}</p>
+                    </div>
+                  </DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem disabled>
-                    <User className="w-4 h-4 mr-2" />
-                    {user.email}
-                  </DropdownMenuItem>
+
+                  {/* Credits and Tier Display */}
+                  {userDetails && (
+                    <div className="px-2 py-2">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Coins className="w-4 h-4 text-yellow-500" />
+                        <span className="text-sm font-semibold text-yellow-600 dark:text-yellow-500">
+                          {userDetails.credits || 0} Credits
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <TierBadge tier={userDetails.tier} className="text-xs" />
+                      </div>
+                    </div>
+                  )}
+
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={handleLogout}>
                     <LogOut className="w-4 h-4 mr-2" />

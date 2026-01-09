@@ -35,9 +35,8 @@ export async function verifyConnection() {
         console.log('[MAILER] SMTP Connection established successfully.');
         return true;
     } catch (error) {
-        console.error('[MAILER] SMTP Connection Failed (Validation Mode - Continuing anyway):', error.message);
-        // FORCE SUCCESS FOR VALIDATION
-        return true;
+        console.error('[MAILER] SMTP Connection Failed:', error);
+        return false;
     }
 }
 

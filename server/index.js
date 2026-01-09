@@ -6,7 +6,6 @@ import jwt from 'jsonwebtoken';
 import { getDb } from './db.js';
 import { sendOtpEmail, verifyConnection } from './mailer.js';
 
-
 dotenv.config();
 
 const app = express();
@@ -34,12 +33,6 @@ function authenticateToken(req, res, next) {
         req.user = user;
         next();
     });
-}
-
-// Middleware: Inject DB Instance
-async function injectDb(req, res, next) {
-    req.db = await getDb();
-    next();
 }
 
 // Helper: Transact Credits
@@ -191,6 +184,114 @@ app.post('/auth/signup/verify', async (req, res) => {
 // SIGN IN FLOW
 // -------------------------------------------------------------
 
+// 1. Initiate Sign In (Send OTP to existing user)
+app.post('/auth/signin/initiate', async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        // Domain Check
+        if (!isValidEmail(email)) {
+            return res.status(400).json({ error: 'Only @iiitn.ac.in emails are allowed' });
+        }
+
+        const db = await getDb();
+
+        // Check if user exists
+        const user = await db.get('SELECT * FROM users WHERE email = ?', email);
+        if (!user) {
+            return res.status(404).json({ error: 'User not found. Please sign up first.' });
+        }
+
+        // Generate & Store OTP
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        const otpHash = await bcrypt.hash(otp, SALT_ROUNDS);
+        const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes
+
+        await db.run(
+            'INSERT INTO otp_verifications (email, otpHash, expiresAt) VALUES (?, ?, ?)',
+            email,
+            otpHash,
+            expiresAt
+        );
+
+        // Send Real Email
+        await sendOtpEmail(email, otp);
+
+        res.json({ message: 'OTP sent successfully', email });
+
+    } catch (error) {
+        console.error('Error in /auth/signin/initiate:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// 2. Verify OTP & Sign In
+app.post('/auth/signin/verify', async (req, res) => {
+    try {
+        const { email, otp } = req.body;
+
+        if (!isValidEmail(email)) {
+            return res.status(400).json({ error: 'Invalid email domain' });
+        }
+
+        const db = await getDb();
+
+        // Verify user exists
+        const user = await db.get('SELECT * FROM users WHERE email = ?', email);
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Verify OTP
+        const record = await db.get(
+            'SELECT * FROM otp_verifications WHERE email = ? AND used = 0 ORDER BY id DESC LIMIT 1',
+            email
+        );
+
+        if (!record) {
+            return res.status(400).json({ error: 'Invalid or expired OTP' });
+        }
+        if (Date.now() > record.expiresAt) {
+            return res.status(400).json({ error: 'OTP has expired' });
+        }
+
+        const match = await bcrypt.compare(otp, record.otpHash);
+        if (!match) {
+            await db.run('UPDATE otp_verifications SET attempts = attempts + 1 WHERE id = ?', record.id);
+            return res.status(400).json({ error: 'Invalid OTP' });
+        }
+
+        // Mark OTP as used
+        await db.run('UPDATE otp_verifications SET used = 1 WHERE id = ?', record.id);
+
+        // Update last login
+        await db.run('UPDATE users SET lastLogin = CURRENT_TIMESTAMP WHERE id = ?', user.id);
+
+        // Issue Token
+        const token = jwt.sign(
+            { userId: user.id, email: user.email },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+
+        res.json({
+            message: 'Login successful',
+            token,
+            user: {
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                isVerified: !!user.isVerified
+            }
+        });
+
+    } catch (error) {
+        console.error('Error in /auth/signin/verify:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// 3. Password-based Login (Legacy)
 app.post('/auth/login', async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -255,7 +356,7 @@ app.delete('/auth/delete-account', authenticateToken, async (req, res) => {
     try {
         const db = await getDb();
 
-        console.log(`[DELETE ACCOUNT] Request for user ${email} (ID: ${userId})`);
+
 
         // Hard Delete User
         await db.run('DELETE FROM users WHERE id = ?', userId);
@@ -272,6 +373,7 @@ app.delete('/auth/delete-account', authenticateToken, async (req, res) => {
 });
 
 import { CreditEngine, CREDIT_CONFIG } from './creditEngine.js';
+import { queryRAG, getRAGStatus } from './rag.js';
 
 // -------------------------------------------------------------
 // QUESTION & ANSWER FLOW
@@ -370,7 +472,6 @@ app.get('/questions/:id', async (req, res) => {
         res.json({ ...question, answers });
 
     } catch (error) {
-        console.error('Error in GET /questions/:id:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
@@ -488,6 +589,202 @@ app.post('/votes', authenticateToken, async (req, res) => {
     }
 });
 
+// Enhanced Vote Endpoints with Upvote/Downvote Tracking
+// 6b. Vote on Question
+app.post('/questions/:id/vote', authenticateToken, async (req, res) => {
+    try {
+        const questionId = parseInt(req.params.id);
+        const { vote_type } = req.body; // 'upvote' or 'downvote'
+        const { userId } = req.user;
+
+        if (!['upvote', 'downvote'].includes(vote_type)) {
+            return res.status(400).json({ error: 'Invalid vote type' });
+        }
+
+        const db = await getDb();
+
+        // Check if question exists
+        const question = await db.get('SELECT author_id, question_upvotes, question_downvotes FROM questions WHERE id = ?', questionId);
+        if (!question) return res.status(404).json({ error: 'Question not found' });
+
+        // Prevent self-voting
+        if (question.author_id === userId) {
+            return res.status(400).json({ error: 'Cannot vote on your own question' });
+        }
+
+        // Check existing vote
+        const existingVote = await db.get(
+            'SELECT vote_type FROM votes WHERE user_id = ? AND target_id = ? AND target_type = ?',
+            userId, questionId, 'question'
+        );
+
+        let upvotes = question.question_upvotes || 0;
+        let downvotes = question.question_downvotes || 0;
+        let removed = false;
+
+        if (existingVote) {
+            if (existingVote.vote_type === vote_type) {
+                // Same vote - remove it (toggle off)
+                await db.run(
+                    'DELETE FROM votes WHERE user_id = ? AND target_id = ? AND target_type = ?',
+                    userId, questionId, 'question'
+                );
+
+                // Decrease count (prevent negative)
+                if (vote_type === 'upvote') {
+                    upvotes = Math.max(0, upvotes - 1);
+                } else {
+                    downvotes = Math.max(0, downvotes - 1);
+                }
+                removed = true;
+            } else {
+                // Different vote - update it
+                await db.run(
+                    'UPDATE votes SET vote_type = ? WHERE user_id = ? AND target_id = ? AND target_type = ?',
+                    vote_type, userId, questionId, 'question'
+                );
+
+                // Decrease old vote, increase new vote
+                if (vote_type === 'upvote') {
+                    upvotes = upvotes + 1;
+                    downvotes = Math.max(0, downvotes - 1);
+                } else {
+                    downvotes = downvotes + 1;
+                    upvotes = Math.max(0, upvotes - 1);
+                }
+            }
+        } else {
+            // New vote  
+            await db.run(
+                'INSERT INTO votes (user_id, target_id, target_type, vote_type, value) VALUES (?, ?, ?, ?, ?)',
+                userId, questionId, 'question', vote_type, vote_type === 'upvote' ? 1 : -1
+            );
+
+            // Increase count
+            if (vote_type === 'upvote') {
+                upvotes = upvotes + 1;
+            } else {
+                downvotes = downvotes + 1;
+            }
+        }
+
+        // Update question vote counts
+        await db.run(
+            'UPDATE questions SET question_upvotes = ?, question_downvotes = ? WHERE id = ?',
+            upvotes, downvotes, questionId
+        );
+
+        res.json({
+            upvotes,
+            downvotes,
+            removed,
+            user_vote: removed ? null : vote_type
+        });
+
+    } catch (error) {
+        console.error('Error in /questions/:id/vote:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// 6c. Vote on Answer
+app.post('/answers/:id/vote', authenticateToken, async (req, res) => {
+    try {
+        const answerId = parseInt(req.params.id);
+        const { vote_type } = req.body; // 'upvote' or 'downvote'
+        const { userId } = req.user;
+
+        if (!['upvote', 'downvote'].includes(vote_type)) {
+            return res.status(400).json({ error: 'Invalid vote type' });
+        }
+
+        const db = await getDb();
+
+        // Check if answer exists
+        const answer = await db.get('SELECT author_id, answer_upvotes, answer_downvotes FROM answers WHERE id = ?', answerId);
+        if (!answer) return res.status(404).json({ error: 'Answer not found' });
+
+        // Prevent self-voting
+        if (answer.author_id === userId) {
+            return res.status(400).json({ error: 'Cannot vote on your own answer' });
+        }
+
+        // Check existing vote
+        const existingVote = await db.get(
+            'SELECT vote_type FROM votes WHERE user_id = ? AND target_id = ? AND target_type = ?',
+            userId, answerId, 'answer'
+        );
+
+        let upvotes = answer.answer_upvotes || 0;
+        let downvotes = answer.answer_downvotes || 0;
+        let removed = false;
+
+        if (existingVote) {
+            if (existingVote.vote_type === vote_type) {
+                // Same vote - remove it (toggle off)
+                await db.run(
+                    'DELETE FROM votes WHERE user_id = ? AND target_id = ? AND target_type = ?',
+                    userId, answerId, 'answer'
+                );
+
+                // Decrease count (prevent negative)
+                if (vote_type === 'upvote') {
+                    upvotes = Math.max(0, upvotes - 1);
+                } else {
+                    downvotes = Math.max(0, downvotes - 1);
+                }
+                removed = true;
+            } else {
+                // Different vote - update it
+                await db.run(
+                    'UPDATE votes SET vote_type = ? WHERE user_id = ? AND target_id = ? AND target_type = ?',
+                    vote_type, userId, answerId, 'answer'
+                );
+
+                // Decrease old vote, increase new vote
+                if (vote_type === 'upvote') {
+                    upvotes = upvotes + 1;
+                    downvotes = Math.max(0, downvotes - 1);
+                } else {
+                    downvotes = downvotes + 1;
+                    upvotes = Math.max(0, upvotes - 1);
+                }
+            }
+        } else {
+            // New vote
+            await db.run(
+                'INSERT INTO votes (user_id, target_id, target_type, vote_type, value) VALUES (?, ?, ?, ?, ?)',
+                userId, answerId, 'answer', vote_type, vote_type === 'upvote' ? 1 : -1
+            );
+
+            // Increase count
+            if (vote_type === 'upvote') {
+                upvotes = upvotes + 1;
+            } else {
+                downvotes = downvotes + 1;
+            }
+        }
+
+        // Update answer vote counts
+        await db.run(
+            'UPDATE answers SET answer_upvotes = ?, answer_downvotes = ? WHERE id = ?',
+            upvotes, downvotes, answerId
+        );
+
+        res.json({
+            upvotes,
+            downvotes,
+            removed,
+            user_vote: removed ? null : vote_type
+        });
+
+    } catch (error) {
+        console.error('Error in /answers/:id/vote:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+
 // 7. Maintainer Verify
 app.post('/answers/:id/verify', authenticateToken, async (req, res) => {
     try {
@@ -526,10 +823,14 @@ app.get('/users/me', authenticateToken, async (req, res) => {
     try {
         const { userId } = req.user;
         const db = await getDb();
-        const user = await db.get('SELECT id, email, name, role, credits, isVerified FROM users WHERE id = ?', userId);
+        const user = await db.get('SELECT id, email, name, role, credits, isVerified, batch, branch FROM users WHERE id = ?', userId);
+
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
 
         const engine = new CreditEngine(db);
-        const tier = engine.getTier(user.credits);
+        const tier = engine.getTier(user.credits || 0);
 
         res.json({ ...user, tier });
     } catch (error) {
@@ -538,9 +839,166 @@ app.get('/users/me', authenticateToken, async (req, res) => {
     }
 });
 
-// ============================================================================
-// NO COMMUNITY ROUTES
-// ============================================================================
+// -------------------------------------------------------------
+// CHATBOT & RAG
+// -------------------------------------------------------------
+
+// Simple in-memory rate limiting (replace with Redis in production)
+const chatRateLimits = new Map();
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
+const MAX_REQUESTS_PER_WINDOW = 10;
+
+function checkRateLimit(userId) {
+    const now = Date.now();
+    const userLimits = chatRateLimits.get(userId) || { count: 0, resetAt: now + RATE_LIMIT_WINDOW };
+
+    if (now > userLimits.resetAt) {
+        // Reset window
+        chatRateLimits.set(userId, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
+        return true;
+    }
+
+    if (userLimits.count >= MAX_REQUESTS_PER_WINDOW) {
+        return false;
+    }
+
+    userLimits.count++;
+    chatRateLimits.set(userId, userLimits);
+    return true;
+}
+
+// 9. Chat Endpoint (Protected)
+app.post('/api/chat', authenticateToken, async (req, res) => {
+    try {
+        const { message } = req.body;
+        const { userId } = req.user;
+
+        if (!message || typeof message !== 'string') {
+            return res.status(400).json({ error: 'Message is required' });
+        }
+
+        if (message.trim().length === 0) {
+            return res.status(400).json({ error: 'Message cannot be empty' });
+        }
+
+        if (message.length > 2000) {
+            return res.status(400).json({ error: 'Message too long (max 2000 characters)' });
+        }
+
+        // Rate limiting
+        if (!checkRateLimit(userId)) {
+            return res.status(429).json({
+                error: 'Rate limit exceeded. Please wait before sending more messages.'
+            });
+        }
+
+        // Query RAG system
+        const reply = await queryRAG(message);
+
+        res.json({ reply });
+
+    } catch (error) {
+        console.error('Error in /api/chat:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// 10. RAG Status Endpoint (for debugging)
+app.get('/api/chat/status', authenticateToken, async (req, res) => {
+    try {
+        const status = getRAGStatus();
+        res.json(status);
+    } catch (error) {
+        console.error('Error in /api/chat/status:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+
+// -------------------------------------------------------------
+// TAGS API
+// -------------------------------------------------------------
+
+// Get popular tags (most frequently used in questions)
+app.get('/api/tags/popular', async (req, res) => {
+    try {
+        const db = await getDb();
+
+        // Get top 15 most used tags from question_tags table
+        const result = await db.all(`
+            SELECT 
+                tag_name,
+                COUNT(*) as usage_count
+            FROM question_tags
+            GROUP BY tag_name
+            ORDER BY usage_count DESC
+            LIMIT 15
+        `);
+
+        // Format the response
+        const popularTags = result.map(row => ({
+            name: row.tag_name,
+            count: row.usage_count
+        }));
+
+        res.json(popularTags);
+    } catch (error) {
+        console.error('Error in /api/tags/popular:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+
+// -------------------------------------------------------------
+// LEADERBOARD API
+// -------------------------------------------------------------
+
+// Get leaderboard data (users with 50+ credits)
+app.get('/api/leaderboard', async (req, res) => {
+    try {
+        const db = await getDb();
+
+        // Get users with at least 50 credits, ordered by credits desc
+        const users = await db.all(`
+            SELECT 
+                u.id,
+                u.name,
+                u.batch,
+                u.branch,
+                u.credits,
+                COUNT(DISTINCT CASE WHEN a.is_accepted = 1 THEN a.id END) as answersAccepted,
+                COUNT(DISTINCT a.id) as totalAnswers,
+                COUNT(DISTINCT CASE WHEN q.is_verified = 1 THEN q.id END) as merges
+            FROM users u
+            LEFT JOIN answers a ON u.id = a.author_id
+            LEFT JOIN questions q ON a.question_id = q.id
+            WHERE u.credits >= 50
+            GROUP BY u.id
+            ORDER BY u.credits DESC
+            LIMIT 100
+        `);
+
+        // Calculate accuracy for each user
+        const leaderboard = users.map(user => ({
+            id: user.id,
+            name: user.name || `User#${user.id}`,
+            batch: user.batch || 'N/A',
+            branch: user.branch || 'CSE',
+            credits: user.credits,
+            answersAccepted: user.answersAccepted,
+            accuracy: user.totalAnswers > 0
+                ? Math.round((user.answersAccepted / user.totalAnswers) * 100)
+                : 0,
+            merges: user.merges
+        }));
+
+        res.json(leaderboard);
+    } catch (error) {
+        console.error('Error in /api/leaderboard:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 
 
 // Start Server Logic
@@ -548,13 +1006,11 @@ app.get('/users/me', authenticateToken, async (req, res) => {
     // Only attempt to verify connection if required params are present (handled inside verifyConnection)
     // But we want to fail fast if they are missing.
 
-    /*
     const isConnected = await verifyConnection();
     if (!isConnected) {
         console.error('[SERVER] Aborting startup. Critical email configuration missing or invalid.');
         process.exit(1);
     }
-    */
 
     app.listen(PORT, () => {
         console.log(`Server running on http://localhost:${PORT}`);
