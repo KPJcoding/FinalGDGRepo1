@@ -192,11 +192,21 @@ export async function queryRAG(userMessage) {
     } catch (error) {
         console.error('[RAG] Error in queryRAG:', error);
 
+        // Handle specific API errors
+        if (error.status === 401 || error.status === 403) {
+            return "I'm currently unable to access my brain (invalid API key or permissions). Please ask the administrator to check the system configuration.";
+        }
+
+        if (error.status === 429) {
+            return "I'm thinking too hard! (Rate limit exceeded). Please try again in a moment.";
+        }
+
         if (error.message?.includes('API key')) {
             return 'Error: Groq API key is not configured. Please contact the administrator.';
         }
 
-        throw error;
+        // Return a generic fallback instead of crashing
+        return "I'm having trouble connecting to my AI service right now. Please check back later or contact support if this persists.";
     }
 }
 
