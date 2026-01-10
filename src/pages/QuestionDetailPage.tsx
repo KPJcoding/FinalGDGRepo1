@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
 import { useParams, useNavigate } from "react-router-dom";
-import { ThumbsUp, ThumbsDown, User, Star, CheckCircle, Loader2, ShieldCheck, FileText, Trash2 } from "lucide-react";
+import { ThumbsUp, ThumbsDown, User, Star, CheckCircle, Loader2, ShieldCheck, FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { TierBadge } from "@/components/qa/TierBadge";
 import { Textarea } from "@/components/ui/textarea";
@@ -86,25 +86,7 @@ export default function QuestionDetailPage() {
         }
     }
 
-    async function handleDeleteAnswer(answerId: number) {
-        if (!confirm('Are you sure you want to delete this answer?')) return;
-        try {
-            const token = localStorage.getItem('auth_token');
-            const response = await fetch(`http://localhost:3000/answers/${answerId}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (response.ok) {
-                toast({ title: "Answer deleted" });
-                loadData();
-            } else {
-                const data = await response.json();
-                toast({ title: "Failed to delete", description: data.error, variant: "destructive" });
-            }
-        } catch (e: any) {
-            toast({ title: "Error", description: e.message || "Unknown error", variant: "destructive" });
-        }
-    }
+
 
     if (loading) return <Layout><div className="p-12 text-center">Loading...</div></Layout>;
     if (!question) return <Layout><div className="p-12 text-center">Question not found</div></Layout>;
@@ -200,17 +182,7 @@ export default function QuestionDetailPage() {
                                     >
                                         <ThumbsDown className="w-4 h-4 mr-1" /> {ans.answer_downvotes || 0}
                                     </Button>
-                                    {currentUser && ans.author_id === currentUser.id && (
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => handleDeleteAnswer(ans.id)}
-                                            className="text-red-500 hover:text-red-700 hover:bg-red-50 ml-2"
-                                        >
-                                            <Trash2 className="w-4 h-4 mr-1" />
-                                            Delete
-                                        </Button>
-                                    )}
+
                                 </div>
 
                                 <div className="flex gap-2">
