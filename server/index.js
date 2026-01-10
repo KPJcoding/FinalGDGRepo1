@@ -429,7 +429,8 @@ app.get('/questions', async (req, res) => {
         // For foundation, basic list is fine.
         const questions = await db.all(`
             SELECT q.*, u.name as author_name,
-            (SELECT SUM(value) FROM votes WHERE target_id = q.id AND target_type = 'question') as vote_count
+            (SELECT SUM(value) FROM votes WHERE target_id = q.id AND target_type = 'question') as vote_count,
+            (SELECT COUNT(*) FROM answers WHERE question_id = q.id AND is_verified = 1) as answer_count
             FROM questions q 
             JOIN users u ON q.author_id = u.id 
             ORDER BY q.created_at DESC
@@ -1174,7 +1175,31 @@ app.delete('/admin/answers/:id/reject', authenticateToken, requireAdmin, async (
     }
 });
 
-// 4. Get Admin Dashboard Stats (Admin Only)
+// 4. Get Verified Answers (Admin Only)
+app.get('/admin/answers/verified', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const db = await getDb();
+        const verifiedAnswers = await db.all(`
+            SELECT 
+                a.*,
+                u.name as author_name,
+                u.email as author_email,
+                q.title as question_title
+            FROM answers a
+            JOIN users u ON a.author_id = u.id
+            JOIN questions q ON a.question_id = q.id
+            WHERE a.is_verified = 1
+            ORDER BY a.verified_at DESC
+            LIMIT 50
+        `);
+        res.json(verifiedAnswers);
+    } catch (error) {
+        console.error('Error fetching verified answers:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// 5. Get Admin Dashboard Stats (Admin Only)
 app.get('/admin/stats', authenticateToken, requireAdmin, async (req, res) => {
     try {
         const db = await getDb();
@@ -1209,6 +1234,32 @@ app.get('/admin/stats', authenticateToken, requireAdmin, async (req, res) => {
 
     } catch (error) {
         console.error('[Admin] Error fetching stats:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// 5. Delete Any Answer (Admin Only)
+app.delete('/admin/answers/:id/delete', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const answerId = req.params.id;
+        const db = await getDb();
+
+        // Check if answer exists
+        const answer = await db.get('SELECT * FROM answers WHERE id = ?', answerId);
+
+        if (!answer) {
+            return res.status(404).json({ error: 'Answer not found' });
+        }
+
+        // Delete the answer (admin can delete any answer)
+        await db.run('DELETE FROM answers WHERE id = ?', answerId);
+
+        console.log(`[Admin] Answer ${answerId} deleted by admin`);
+
+        res.json({ message: 'Answer deleted successfully' });
+
+    } catch (error) {
+        console.error('[Admin] Error deleting answer:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });

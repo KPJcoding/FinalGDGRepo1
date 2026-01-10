@@ -47,12 +47,58 @@ export default function AdminDashboard() {
     const [stats, setStats] = useState<DashboardStats | null>(null);
     const [unverifiedAnswers, setUnverifiedAnswers] = useState<UnverifiedAnswer[]>([]);
     const [processingId, setProcessingId] = useState<number | null>(null);
+    const [verifiedAnswers, setVerifiedAnswers] = useState<UnverifiedAnswer[]>([]);
 
     useEffect(() => {
         checkAdminAccess();
         fetchStats();
         fetchUnverifiedAnswers();
+        fetchVerifiedAnswers();
     }, []);
+
+    // ... existing checkAdminAccess ...
+
+    const fetchVerifiedAnswers = async () => {
+        try {
+            const token = localStorage.getItem('auth_token');
+            const response = await fetch(`${API_URL}/admin/answers/verified`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                setVerifiedAnswers(data);
+            }
+        } catch (error) {
+            console.error('Error fetching verified answers:', error);
+        }
+    };
+
+    const handleDeleteVerified = async (id: number) => {
+        if (!confirm('Are you sure you want to delete this verified answer?')) return;
+
+        try {
+            const token = localStorage.getItem('auth_token');
+            const response = await fetch(`${API_URL}/admin/answers/${id}/delete`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.ok) {
+                showToast('Answer deleted successfully', 'success');
+                fetchVerifiedAnswers(); // Refresh list
+                fetchStats(); // Update stats
+            } else {
+                showToast('Failed to delete answer', 'error');
+            }
+        } catch (error) {
+            showToast('Error deleting answer', 'error');
+        }
+    };
+
+    // ... rest of component ...
+    // Add Verified Answers Section BELOW the Unverified Section in return
+
 
     const checkAdminAccess = async () => {
         const token = localStorage.getItem('auth_token');
@@ -379,6 +425,56 @@ export default function AdminDashboard() {
                                 ))}
                             </div>
                         )}
+                    </div>
+                </div>
+            </section>
+
+            {/* Verified Answers Section */}
+            <section className="pb-12 bg-background">
+                <div className="container mx-auto px-4">
+                    <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-2xl font-bold text-foreground">Verified Answers Log</h2>
+                        <Badge variant="outline" className="text-lg px-4 py-2 border-green-500 text-green-600 bg-green-50">
+                            {verifiedAnswers.length} recent
+                        </Badge>
+                    </div>
+
+                    <div className="grid gap-4">
+                        {verifiedAnswers.map((answer) => (
+                            <motion.div
+                                key={answer.id}
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                className="bg-card border border-green-200 bg-green-50/10 rounded-xl p-6 shadow-sm"
+                            >
+                                <div className="flex justify-between items-start mb-4">
+                                    <div>
+                                        <h3 className="text-lg font-semibold text-foreground mb-1">
+                                            {answer.question_title}
+                                        </h3>
+                                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                            <span>by {answer.author_name} ({answer.author_email})</span>
+                                            <span>•</span>
+                                            <span>Verified {new Date(answer.created_at).toLocaleDateString()}</span>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Badge variant="outline" className="bg-green-100 text-green-700 border-green-200 gap-1">
+                                            <Shield className="w-3 h-3" /> Verified
+                                        </Badge>
+                                        <Button
+                                            variant="destructive"
+                                            size="sm"
+                                            onClick={() => handleDeleteVerified(answer.id)}
+                                            className="bg-red-50 text-red-600 hover:bg-red-100 border border-red-200"
+                                        >
+                                            Delete
+                                        </Button>
+                                    </div>
+                                </div>
+                                <p className="text-foreground/90 whitespace-pre-wrap">{answer.content}</p>
+                            </motion.div>
+                        ))}
                     </div>
                 </div>
             </section>

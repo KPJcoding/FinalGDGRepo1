@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, Filter, CheckCircle, ThumbsUp, ThumbsDown, ArrowRight, Shield, ChevronDown, Eye, FileText, Trash2 } from "lucide-react";
 import { useState, useEffect } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -130,7 +131,18 @@ export default function Explore() {
         return;
       }
 
-      const response = await fetch(`${API_URL}/answers/${answerId}`, {
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      const ADMIN_EMAILS = ['bt25csh068@iiitn.ac.in'];
+
+      // Admin uses admin delete endpoint, regular user uses regular delete
+      // Fallback: Check for specific admin email if role is missing/lost
+      const isAdmin = user.role === 'ADMIN' || (user.email && ADMIN_EMAILS.includes(user.email));
+
+      const endpoint = isAdmin
+        ? `${API_URL}/admin/answers/${answerId}/delete`
+        : `${API_URL}/answers/${answerId}`;
+
+      const response = await fetch(endpoint, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -268,6 +280,7 @@ export default function Explore() {
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 3000);
   };
+
 
   const filteredQuestions = questions.filter((q) => {
     if (selectedDifficulty !== "All" && q.difficulty_tier !== selectedDifficulty) return false;
@@ -474,6 +487,16 @@ function QuestionDetail({ question, onBack, onVote, getTimeAgo, handleDeleteAnsw
   getTimeAgo: (date: string) => string;
   handleDeleteAnswer: (answerId: number) => void;
 }) {
+  const { user: currentUser } = useAuth();
+
+  // Robust Admin Check: Check Role, Email, OR ID
+  const ADMIN_EMAILS = ['bt25csh068@iiitn.ac.in'];
+  const isAdmin = currentUser && (
+    currentUser.role === 'ADMIN' ||
+    (currentUser.email && ADMIN_EMAILS.includes(currentUser.email)) ||
+    currentUser.id === 9
+  );
+
   const minUpvotes = question.answers.length > 0
     ? Math.min(...question.answers.map(a => a.answer_upvotes))
     : 0;
@@ -546,32 +569,49 @@ function QuestionDetail({ question, onBack, onVote, getTimeAgo, handleDeleteAnsw
         </div>
       </div>
 
-      {/* Answers */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold text-foreground">{question.answers.length} Verified Answers</h2>
-          {question.answers.length > 0 && (
-            <div className="text-sm text-muted-foreground">
-              💡 Earn {TIER_POINTS[question.difficulty_tier]} credits if your answer gets {requiredUpvotes}+ upvotes
-            </div>
-          )}
         </div>
 
         {question.answers.map((answer, index) => (
           <motion.div
             key={answer.id}
-            initial={{ opacity: 0, y: 10 }}
+            initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.1 }}
-            className={`bg-card border rounded-xl p-6 ${answer.is_maintainer_verified
-              ? 'border-sol-verified/50 bg-sol-verified/5'
+            className={`bg-card border-2 rounded-xl p-6 relative ${answer.is_verified || answer.is_maintainer_verified
+              ? 'border-green-500/50 bg-green-50/20'
               : 'border-border'
               }`}
           >
-            {answer.is_maintainer_verified && (
-              <div className="flex items-center gap-2 mb-4 text-sm font-medium text-sol-verified">
-                <Shield className="w-4 h-4" />
-                Expert Verified Answer
+            {/* Delete button for answer owner OR admin (Top Right Corner) */}
+            {currentUser && (answer.author_id === currentUser.id || isAdmin) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleDeleteAnswer(answer.id)}
+                className="absolute top-4 right-4 text-red-500 hover:text-red-700 hover:bg-red-50"
+              >
+                <Trash2 className="w-4 h-4 mr-1" />
+                Delete
+              </Button>
+            )}
+
+            {/* Verified Badge Header */}
+            {(answer.is_verified || answer.is_maintainer_verified) && (
+              <div className="flex items-center gap-2 mb-4">
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-blue-100 text-blue-700 text-xs font-medium">
+                  <Shield className="w-3 h-3" />
+                  Verified
+                </span>
+                {/* Show Accepted badge if answer has more than 5 upvotes */}
+                {(answer.answer_upvotes || 0) > 5 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-green-600 text-white text-xs font-medium">
+                    <CheckCircle className="w-3 h-3" />
+                    Accepted
+                  </span>
+                )}
               </div>
             )}
 
@@ -582,6 +622,12 @@ function QuestionDetail({ question, onBack, onVote, getTimeAgo, handleDeleteAnsw
                 <span className="font-medium text-foreground">{answer.author_name || `User#${answer.author_id}`}</span>
                 <span>•</span>
                 <span>{getTimeAgo(answer.created_at)}</span>
+                {answer.verified_at && (
+                  <>
+                    <span>•</span>
+                    <span className="text-green-600 font-medium">Verified {getTimeAgo(answer.verified_at)}</span>
+                  </>
+                )}
               </div>
               <div className="flex items-center gap-3">
                 <Button
@@ -602,17 +648,6 @@ function QuestionDetail({ question, onBack, onVote, getTimeAgo, handleDeleteAnsw
                   <ThumbsDown className="w-4 h-4" />
                   {answer.answer_downvotes || 0}
                 </Button>
-                {answer.author_id === JSON.parse(localStorage.getItem('user') || '{}').id && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDeleteAnswer(answer.id)}
-                    className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                  >
-                    <Trash2 className="w-4 h-4 mr-1" />
-                    Delete
-                  </Button>
-                )}
               </div>
             </div>
           </motion.div>
