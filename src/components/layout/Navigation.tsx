@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Search, BookOpen, Users, Trophy, Menu, X, Sparkles, LogOut, Trash2, User, Coins } from "lucide-react";
+import { Search, BookOpen, Users, Trophy, Menu, X, Sparkles, LogOut, Trash2, User, Coins, Shield } from "lucide-react";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
@@ -149,6 +149,20 @@ export function Navigation() {
                   )}
 
                   <DropdownMenuSeparator />
+
+                  {/* Admin Panel - Only visible to admins */}
+                  {user.role === 'ADMIN' && (
+                    <>
+                      <Link to="/admin">
+                        <DropdownMenuItem className="cursor-pointer">
+                          <Shield className="w-4 h-4 mr-2 text-sol-cyan" />
+                          <span className="font-semibold text-sol-cyan">Admin Panel</span>
+                        </DropdownMenuItem>
+                      </Link>
+                      <DropdownMenuSeparator />
+                    </>
+                  )}
+
                   <DropdownMenuItem onClick={handleLogout}>
                     <LogOut className="w-4 h-4 mr-2" />
                     Sign Out
@@ -217,6 +231,23 @@ export function Navigation() {
                   </Link>
                 );
               })}
+
+              {/* Admin Panel Button for Mobile - Only visible to admins */}
+              {isAuthenticated && user?.role === 'ADMIN' && (
+                <Link
+                  to="/admin"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  <Button
+                    variant={location.pathname === '/admin' ? "nav-active" : "nav"}
+                    className="w-full justify-start gap-2 bg-sol-cyan/10 border-sol-cyan/30"
+                  >
+                    <Shield className="w-4 h-4" />
+                    Admin Panel
+                  </Button>
+                </Link>
+              )}
+
               <div className="flex gap-2 pt-4 border-t border-border mt-2">
                 {isAuthenticated && user ? (
                   <div className="w-full space-y-2">

@@ -97,7 +97,7 @@ async function initializeRAG() {
  * Simple keyword-based retrieval (BM25-like scoring)
  * In production, use proper embeddings and vector similarity
  */
-function retrieveRelevantChunks(query, topK = 3) {
+function retrieveRelevantChunks(query, topK = 5) {
     const queryWords = query.toLowerCase().split(/\s+/);
 
     // Score each chunk based on keyword matches
@@ -106,7 +106,7 @@ function retrieveRelevantChunks(query, topK = 3) {
         let score = 0;
 
         queryWords.forEach(word => {
-            if (word.length > 3) { // Ignore very short words
+            if (word.length > 2) { // Lowered from 3 to 2 for better matching
                 const matches = (chunkText.match(new RegExp(word, 'g')) || []).length;
                 score += matches;
             }
@@ -204,11 +204,30 @@ export async function queryRAG(userMessage) {
  * Health check for RAG system
  */
 export function getRAGStatus() {
+    const documents = {};
+
+    // Group chunks by source document
+    documentChunks.forEach(chunk => {
+        const source = chunk.metadata.source;
+        if (!documents[source]) {
+            documents[source] = 0;
+        }
+        documents[source]++;
+    });
+
     return {
         initialized: documentChunks.length > 0,
         totalChunks: documentChunks.length,
+        totalDocuments: Object.keys(documents).length,
+        documents: documents, // Show which documents are loaded and their chunk counts
         model: MODEL,
-        hasAPIKey: !!process.env.GROQ_API_KEY
+        hasAPIKey: !!process.env.GROQ_API_KEY,
+        config: {
+            chunkSize: 1000,
+            overlap: 200,
+            topK: 5,
+            minWordLength: 3
+        }
     };
 }
 

@@ -6,6 +6,7 @@ interface User {
     name: string;
     isVerified: boolean;
     credits?: number;
+    role?: string; // 'USER' or 'ADMIN'
 }
 
 interface AuthContextType {

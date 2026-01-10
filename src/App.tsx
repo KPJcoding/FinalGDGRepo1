@@ -16,6 +16,7 @@ import QuestionDetailPage from "./pages/QuestionDetailPage";
 import AskQuestionPage from "./pages/AskQuestionPage";
 import Guidelines from "./pages/Guidelines";
 import ReportIssue from "./pages/ReportIssue";
+import AdminDashboard from "./pages/AdminDashboard";
 import NotFound from "./pages/NotFound";
 import { AuthProvider } from "./contexts/AuthContext";
 
@@ -42,6 +43,7 @@ const App = () => (
             <Route path="/questions/:id" element={<QuestionDetailPage />} />
             <Route path="/guidelines" element={<Guidelines />} />
             <Route path="/report-issue" element={<ReportIssue />} />
+            <Route path="/admin" element={<AdminDashboard />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

@@ -5,6 +5,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { getDb } from './db.js';
 import { sendOtpEmail, verifyConnection } from './mailer.js';
+import { requireAdmin } from './adminMiddleware.js';
 
 dotenv.config();
 
@@ -281,7 +282,8 @@ app.post('/auth/signin/verify', async (req, res) => {
                 id: user.id,
                 email: user.email,
                 name: user.name,
-                isVerified: !!user.isVerified
+                isVerified: !!user.isVerified,
+                role: user.role || 'USER' // Include role for admin detection
             }
         });
 
@@ -333,7 +335,8 @@ app.post('/auth/login', async (req, res) => {
                 id: user.id,
                 email: user.email,
                 name: user.name,
-                isVerified: !!user.isVerified
+                isVerified: !!user.isVerified,
+                role: user.role || 'USER' // Include role for admin detection
             }
         });
 
@@ -374,6 +377,7 @@ app.delete('/auth/delete-account', authenticateToken, async (req, res) => {
 
 import { CreditEngine, CREDIT_CONFIG } from './creditEngine.js';
 import { queryRAG, getRAGStatus } from './rag.js';
+import { extractAll as extractWebsiteContent } from './extract-website-content.js';
 
 // -------------------------------------------------------------
 // QUESTION & ANSWER FLOW
@@ -456,20 +460,42 @@ app.get('/questions/:id', async (req, res) => {
 
         question.vote_count = await getVoteCount(db, id, 'question');
 
-        const answers = await db.all(`
-            SELECT a.*, u.name as author_name 
-            FROM answers a 
-            JOIN users u ON a.author_id = u.id 
-            WHERE a.question_id = ? 
-            ORDER BY a.is_maintainer_verified DESC, a.is_accepted DESC, a.created_at ASC
-        `, id);
+        // Check if user is admin (via token if provided)
+        let isUserAdmin = false;
+        const authHeader = req.headers['authorization'];
+        if (authHeader) {
+            try {
+                const token = authHeader.split(' ')[1];
+                const decoded = jwt.verify(token, JWT_SECRET);
+                const user = await db.get('SELECT role FROM users WHERE id = ?', decoded.userId);
+                isUserAdmin = user && user.role === 'ADMIN';
+            } catch (err) {
+                // Invalid token or no token - treat as non-admin
+            }
+        }
+
+        // Filter answers based on verification status
+        // Admin sees ALL answers, non-admin sees only verified answers
+        const answerQuery = isUserAdmin
+            ? `SELECT a.*, u.name as author_name 
+               FROM answers a 
+               JOIN users u ON a.author_id = u.id 
+               WHERE a.question_id = ? 
+               ORDER BY a.is_maintainer_verified DESC, a.is_accepted DESC, a.created_at ASC`
+            : `SELECT a.*, u.name as author_name 
+               FROM answers a 
+               JOIN users u ON a.author_id = u.id 
+               WHERE a.question_id = ? AND a.is_verified = 1
+               ORDER BY a.is_maintainer_verified DESC, a.is_accepted DESC, a.created_at ASC`;
+
+        const answers = await db.all(answerQuery, id);
 
         // Attach votes to answers
         for (const ans of answers) {
             ans.vote_count = await getVoteCount(db, ans.id, 'answer');
         }
 
-        res.json({ ...question, answers });
+        res.json({ ...question, answers, isAdmin: isUserAdmin });
 
     } catch (error) {
         res.status(500).json({ error: 'Internal server error' });
@@ -492,11 +518,18 @@ app.post('/questions/:id/answers', authenticateToken, async (req, res) => {
         const question = await db.get('SELECT id FROM questions WHERE id = ?', id);
         if (!question) return res.status(404).json({ error: 'Question not found' });
 
-        await db.run(
-            'INSERT INTO answers (question_id, author_id, content) VALUES (?, ?, ?)',
+        // Insert answer with is_verified = 0 (unverified by default)
+        const result = await db.run(
+            'INSERT INTO answers (question_id, author_id, content, is_verified) VALUES (?, ?, ?, 0)',
             id, userId, content
         );
-        res.json({ message: 'Answer posted' });
+
+        console.log(`[ANSWER] New answer submitted by user ${userId} for question ${id} - pending verification`);
+
+        res.json({
+            message: 'Answer submitted successfully! It will be visible after admin verification.',
+            answerId: result.lastID
+        });
 
     } catch (error) {
         console.error('Error:', error);
@@ -999,6 +1032,187 @@ app.get('/api/leaderboard', async (req, res) => {
     }
 });
 
+// -------------------------------------------------------------
+// ADMIN ENDPOINTS - Answer Verification System
+// -------------------------------------------------------------
+
+// 1. Get All Unverified Answers (Admin Only)
+app.get('/admin/answers/unverified', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const db = await getDb();
+
+        const unverifiedAnswers = await db.all(`
+            SELECT 
+                a.id,
+                a.content,
+                a.created_at,
+                a.question_id,
+                q.title as question_title,
+                q.difficulty_tier,
+                q.credit_value,
+                u.id as author_id,
+                u.name as author_name,
+                u.email as author_email
+            FROM answers a
+            JOIN users u ON a.author_id = u.id
+            JOIN questions q ON a.question_id = q.id
+            WHERE a.is_verified = 0
+            ORDER BY a.created_at DESC
+        `);
+
+        res.json({
+            answers: unverifiedAnswers,
+            count: unverifiedAnswers.length
+        });
+
+    } catch (error) {
+        console.error('[Admin] Error fetching unverified answers:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// 2. Verify Answer (Admin Only)
+app.post('/admin/answers/:id/verify', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const answerId = req.params.id;
+        const adminId = req.user.userId;
+        const db = await getDb();
+
+        await db.exec('BEGIN TRANSACTION');
+
+        try {
+            // Get answer details
+            const answer = await db.get(`
+                SELECT a.*, q.credit_value, q.title as question_title
+                FROM answers a
+                JOIN questions q ON a.question_id = q.id
+                WHERE a.id = ?
+            `, answerId);
+
+            if (!answer) {
+                await db.exec('ROLLBACK');
+                return res.status(404).json({ error: 'Answer not found' });
+            }
+
+            if (answer.is_verified === 1) {
+                await db.exec('ROLLBACK');
+                return res.status(400).json({ error: 'Answer already verified' });
+            }
+
+            // Update answer verification status
+            await db.run(`
+                UPDATE answers 
+                SET is_verified = 1,
+                    verified_by = ?,
+                    verified_at = datetime('now')
+                WHERE id = ?
+            `, adminId, answerId);
+
+            // Award credits to the author
+            const creditValue = answer.credit_value || 15;
+            await db.run(`
+                UPDATE users 
+                SET credits = COALESCE(credits, 0) + ?
+                WHERE id = ?
+            `, creditValue, answer.author_id);
+
+            // Record credit transaction
+            await db.run(`
+                INSERT INTO credit_transactions (user_id, amount, type, description)
+                VALUES (?, ?, 'ANSWER_VERIFIED', ?)
+            `, answer.author_id, creditValue, `Answer verified for: ${answer.question_title}`);
+
+            await db.exec('COMMIT');
+
+            console.log(`[Admin] Answer ${answerId} verified by admin ${adminId}, ${creditValue} credits awarded`);
+
+            res.json({
+                message: 'Answer verified successfully',
+                creditsAwarded: creditValue,
+                answerId: answerId
+            });
+
+        } catch (error) {
+            await db.exec('ROLLBACK');
+            throw error;
+        }
+
+    } catch (error) {
+        console.error('[Admin] Error verifying answer:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// 3. Reject/Delete Answer (Admin Only)
+app.delete('/admin/answers/:id/reject', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const answerId = req.params.id;
+        const { reason } = req.body; // Optional rejection reason
+        const db = await getDb();
+
+        // Check if answer exists and is unverified
+        const answer = await db.get('SELECT * FROM answers WHERE id = ?', answerId);
+
+        if (!answer) {
+            return res.status(404).json({ error: 'Answer not found' });
+        }
+
+        if (answer.is_verified === 1) {
+            return res.status(400).json({ error: 'Cannot reject verified answer' });
+        }
+
+        // Delete the answer
+        await db.run('DELETE FROM answers WHERE id = ?', answerId);
+
+        console.log(`[Admin] Answer ${answerId} rejected and deleted. Reason: ${reason || 'Not specified'}`);
+
+        res.json({ message: 'Answer rejected and removed' });
+
+    } catch (error) {
+        console.error('[Admin] Error rejecting answer:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// 4. Get Admin Dashboard Stats (Admin Only)
+app.get('/admin/stats', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const db = await getDb();
+
+        const pendingCount = await db.get('SELECT COUNT(*) as count FROM answers WHERE is_verified = 0');
+        const verifiedCount = await db.get('SELECT COUNT(*) as count FROM answers WHERE is_verified = 1');
+        const totalQuestions = await db.get('SELECT COUNT(*) as count FROM questions');
+        const totalUsers = await db.get('SELECT COUNT(*) as count FROM users');
+
+        // Recent activity
+        const recentVerifications = await db.all(`
+            SELECT 
+                a.id,
+                a.verified_at,
+                u.name as author_name,
+                q.title as question_title
+            FROM answers a
+            JOIN users u ON a.author_id = u.id
+            JOIN questions q ON a.question_id = q.id
+            WHERE a.is_verified = 1 AND a.verified_at IS NOT NULL
+            ORDER BY a.verified_at DESC
+            LIMIT 10
+        `);
+
+        res.json({
+            pendingReviews: pendingCount.count,
+            totalVerified: verifiedCount.count,
+            totalQuestions: totalQuestions.count,
+            totalUsers: totalUsers.count,
+            recentVerifications
+        });
+
+    } catch (error) {
+        console.error('[Admin] Error fetching stats:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 
 
 // Start Server Logic
@@ -1011,6 +1225,10 @@ app.get('/api/leaderboard', async (req, res) => {
         console.error('[SERVER] Aborting startup. Critical email configuration missing or invalid.');
         process.exit(1);
     }
+
+    // Extract website content before initializing RAG
+    console.log('[SERVER] Extracting website content...');
+    extractWebsiteContent();
 
     app.listen(PORT, () => {
         console.log(`Server running on http://localhost:${PORT}`);
