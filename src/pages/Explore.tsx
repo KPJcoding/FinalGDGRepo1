@@ -28,7 +28,7 @@ interface Question {
   id: number;
   title: string;
   content: string;
-  difficulty_tier: "Bronze" | "Silver" | "Gold" | "Platinum";
+  difficulty: "Bronze" | "Silver" | "Gold" | "Platinum";
   tags: string[];
   question_upvotes: number;
   question_downvotes: number;
@@ -50,6 +50,8 @@ interface Answer {
   answer_downvotes: number;
   is_maintainer_verified: boolean;
   is_accepted: boolean;
+  is_verified?: number;
+  verified_at?: string;
   user_vote: 'upvote' | 'downvote' | null;
 }
 
@@ -283,7 +285,7 @@ export default function Explore() {
 
 
   const filteredQuestions = questions.filter((q) => {
-    if (selectedDifficulty !== "All" && q.difficulty_tier !== selectedDifficulty) return false;
+    if (selectedDifficulty !== "All" && q.difficulty !== selectedDifficulty) return false;
     if (searchQuery && !q.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;
   });
@@ -415,8 +417,8 @@ export default function Explore() {
                           <CheckCircle className="w-3 h-3" />
                           Verified
                         </Badge>
-                        <Badge variant="outline" className={TIER_COLORS[question.difficulty_tier]}>
-                          {question.difficulty_tier}
+                        <Badge variant="outline" className={TIER_COLORS[question.difficulty]}>
+                          {question.difficulty}
                         </Badge>
                         {(question.tags || []).map(tag => (
                           <Badge key={tag} variant="secondary" className="text-xs">
@@ -523,8 +525,8 @@ function QuestionDetail({ question, onBack, onVote, getTimeAgo, handleDeleteAnsw
             <CheckCircle className="w-3 h-3" />
             Verified
           </Badge>
-          <Badge variant="outline" className={TIER_COLORS[question.difficulty_tier]}>
-            {question.difficulty_tier}
+          <Badge variant="outline" className={TIER_COLORS[question.difficulty]}>
+            {question.difficulty}
           </Badge>
           {(question.tags || []).map(tag => (
             <Badge key={tag} variant="secondary">
@@ -667,7 +669,7 @@ function QuestionDetail({ question, onBack, onVote, getTimeAgo, handleDeleteAnsw
         {/* Answer Submission Form */}
         <AnswerSubmissionForm
           questionId={question.id}
-          difficultyTier={question.difficulty_tier}
+          difficulty={question.difficulty}
           requiredUpvotes={requiredUpvotes}
           onAnswerSubmitted={() => {
             // Reload question details
@@ -679,9 +681,9 @@ function QuestionDetail({ question, onBack, onVote, getTimeAgo, handleDeleteAnsw
   );
 }
 
-function AnswerSubmissionForm({ questionId, difficultyTier, requiredUpvotes, onAnswerSubmitted }: {
+function AnswerSubmissionForm({ questionId, difficulty, requiredUpvotes, onAnswerSubmitted }: {
   questionId: number;
-  difficultyTier: "Bronze" | "Silver" | "Gold" | "Platinum";
+  difficulty: "Bronze" | "Silver" | "Gold" | "Platinum";
   requiredUpvotes: number;
   onAnswerSubmitted: () => void;
 }) {

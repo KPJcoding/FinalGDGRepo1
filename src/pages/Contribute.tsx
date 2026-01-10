@@ -37,7 +37,7 @@ interface Question {
   id: number;
   title: string;
   content: string;
-  difficulty_tier: "Bronze" | "Silver" | "Gold" | "Platinum";
+  difficulty: "Bronze" | "Silver" | "Gold" | "Platinum";
   tags: string[];
   question_upvotes: number;
   question_downvotes: number;
@@ -322,8 +322,8 @@ export default function Contribute() {
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
                       <div className="flex flex-wrap items-center gap-2 mb-3">
-                        <Badge variant="outline" className={TIER_COLORS[question.difficulty_tier]}>
-                          {question.difficulty_tier}
+                        <Badge variant="outline" className={TIER_COLORS[question.difficulty]}>
+                          {question.difficulty}
                         </Badge>
                         {(question.tags || []).map(tag => (
                           <Badge key={tag} variant="secondary" className="text-xs">
@@ -378,7 +378,7 @@ export default function Contribute() {
                     <div className="flex flex-col items-center gap-2">
                       <div className="flex items-center gap-1 text-sol-cyan font-semibold">
                         <Star className="w-4 h-4" />
-                        {TIER_POINTS[question.difficulty_tier]} pts
+                        {TIER_POINTS[question.difficulty]} pts
                       </div>
                       <Button
                         variant="accent"
@@ -448,24 +448,32 @@ function CreateQuestionModal({ isOpen, onClose, onSuccess, popularTags }: {
         body: JSON.stringify({
           title,
           content,
-          difficulty_tier: difficulty,
+          difficulty: difficulty,
           tags: selectedTags
         })
       });
 
+      const data = await response.json();
+
       if (response.ok) {
-        onSuccess();
+        showToastModal('Question submitted for review! Admin will verify shortly.', 'success');
+
+        // Reset form
         setTitle('');
         setContent('');
-        setSelectedTags([]);
         setDifficulty('Bronze');
-        showToastModal('Question created successfully! 🎉', 'success');
+        setSelectedTags([]);
+
+        // Close modal after showing success message
+        setTimeout(() => {
+          onSuccess();
+          onClose();
+        }, 2000);
       } else {
-        const data = await response.json();
-        showToastModal(data.error || 'Failed to create question', 'error');
+        showToastModal(data.error || 'Failed to submit question', 'error');
       }
     } catch (error) {
-      console.error('Failed to create question:', error);
+      console.error('Failed to submit question:', error);
       showToastModal('Network error. Please try again.', 'error');
     } finally {
       setSubmitting(false);

@@ -347,34 +347,6 @@ app.post('/auth/login', async (req, res) => {
 });
 
 
-// -------------------------------------------------------------
-// ACCOUNT MANAGEMENT
-// -------------------------------------------------------------
-
-app.delete('/auth/delete-account', authenticateToken, async (req, res) => {
-    // req.user is populated by authenticateToken middleware
-    // structure: { userId: 1, email: '...', iat: ..., exp: ... }
-    const { userId, email } = req.user;
-
-    try {
-        const db = await getDb();
-
-
-
-        // Hard Delete User
-        await db.run('DELETE FROM users WHERE id = ?', userId);
-
-        // Hard Delete OTP records
-        await db.run('DELETE FROM otp_verifications WHERE email = ?', email);
-
-        res.json({ message: 'Account deleted successfully' });
-
-    } catch (error) {
-        console.error('Error in /auth/delete-account:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
 import { CreditEngine, CREDIT_CONFIG } from './creditEngine.js';
 import { queryRAG, getRAGStatus } from './rag.js';
 import { extractAll as extractWebsiteContent } from './extract-website-content.js';
@@ -409,11 +381,19 @@ app.post('/questions', authenticateToken, async (req, res) => {
         }
 
         const db = await getDb();
+        // Insert with is_verified = 0. Difficulty is stored as PROPOSAL.
+        // Credits are NOT awarded here anymore.
         const result = await db.run(
-            'INSERT INTO questions (title, content, difficulty, author_id) VALUES (?, ?, ?, ?)',
+            'INSERT INTO questions (title, content, difficulty, author_id, is_verified) VALUES (?, ?, ?, ?, 0)',
             title, content, normalizedDiff, userId
         );
-        res.json({ id: result.lastID, message: 'Question created successfully' });
+
+        console.log(`[QUESTION] New question submitted by user ${userId} - pending verification`);
+
+        res.json({
+            id: result.lastID,
+            message: 'Question submitted for review. It will be visible after admin verification.'
+        });
 
     } catch (error) {
         console.error('Error in POST /questions:', error);
@@ -421,18 +401,20 @@ app.post('/questions', authenticateToken, async (req, res) => {
     }
 });
 
-// 2. List Questions
+// 2. List Questions (Public)
 app.get('/questions', async (req, res) => {
     try {
+        const { status } = req.query; // 'contribute' or 'explore' - now same logic for both regarding verification
         const db = await getDb();
-        // Naive approach: get all, then we might want to attach vote counts.
-        // For foundation, basic list is fine.
+
+        // Only show VERIFIED questions to the public
         const questions = await db.all(`
             SELECT q.*, u.name as author_name,
             (SELECT SUM(value) FROM votes WHERE target_id = q.id AND target_type = 'question') as vote_count,
             (SELECT COUNT(*) FROM answers WHERE question_id = q.id AND is_verified = 1) as answer_count
             FROM questions q 
             JOIN users u ON q.author_id = u.id 
+            WHERE q.is_verified = 1
             ORDER BY q.created_at DESC
         `);
         res.json(questions);
@@ -1049,8 +1031,9 @@ app.get('/admin/answers/unverified', authenticateToken, requireAdmin, async (req
                 a.created_at,
                 a.question_id,
                 q.title as question_title,
-                q.difficulty_tier,
-                q.credit_value,
+                q.difficulty as question_difficulty,
+                q.difficulty as difficulty_tier,
+                q.difficulty,
                 u.id as author_id,
                 u.name as author_name,
                 u.email as author_email
@@ -1061,10 +1044,13 @@ app.get('/admin/answers/unverified', authenticateToken, requireAdmin, async (req
             ORDER BY a.created_at DESC
         `);
 
-        res.json({
-            answers: unverifiedAnswers,
-            count: unverifiedAnswers.length
+        // Calculate credit_value based on difficulty
+        const creditMap = { Bronze: 5, Silver: 10, Gold: 20, Platinum: 40 };
+        unverifiedAnswers.forEach(answer => {
+            answer.credit_value = creditMap[answer.difficulty] || 15;
         });
+
+        res.json(unverifiedAnswers);
 
     } catch (error) {
         console.error('[Admin] Error fetching unverified answers:', error);
@@ -1260,6 +1246,165 @@ app.delete('/admin/answers/:id/delete', authenticateToken, requireAdmin, async (
 
     } catch (error) {
         console.error('[Admin] Error deleting answer:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// -------------------------------------------------------------
+// ADMIN QUESTION MANAGEMENT
+// -------------------------------------------------------------
+
+// 1. Get Pending Questions (Admin Only)
+app.get('/admin/questions/pending', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const db = await getDb();
+        const pendingQuestions = await db.all(`
+            SELECT 
+                q.*,
+                u.name as author_name,
+                u.email as author_email
+            FROM questions q
+            JOIN users u ON q.author_id = u.id
+            WHERE q.is_verified = 0 OR q.is_verified IS NULL
+            ORDER BY q.created_at DESC
+        `);
+        res.json(pendingQuestions);
+    } catch (error) {
+        console.error('[Admin] Error fetching pending questions:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// 2. Verify Question (Admin Only)
+app.post('/admin/questions/:id/verify', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const questionId = req.params.id;
+        const { difficulty } = req.body;
+        const adminId = req.user.userId;
+        const db = await getDb();
+
+        if (!difficulty) {
+            return res.status(400).json({ error: 'Difficulty is required' });
+        }
+
+        // Validate difficulty
+        const validDiffs = ['Bronze', 'Silver', 'Gold', 'Platinum'];
+        if (!validDiffs.includes(difficulty)) {
+            return res.status(400).json({ error: 'Invalid difficulty' });
+        }
+
+        // Check if question exists
+        const question = await db.get('SELECT * FROM questions WHERE id = ?', questionId);
+        if (!question) {
+            return res.status(404).json({ error: 'Question not found' });
+        }
+
+        if (question.is_verified === 1) {
+            return res.status(400).json({ error: 'Question already verified' });
+        }
+
+        try {
+            await db.exec('BEGIN TRANSACTION');
+
+            // Update question verification status and difficulty
+            await db.run(`
+                UPDATE questions 
+                SET is_verified = 1,
+                    verified_by = ?,
+                    verified_at = datetime('now'),
+                    difficulty = ?
+                WHERE id = ?
+            `, adminId, difficulty, questionId);
+
+            // Award credits based on difficulty
+            const creditMap = {
+                'Bronze': 5,
+                'Silver': 10,
+                'Gold': 20,
+                'Platinum': 40
+            };
+            const creditsAwarded = creditMap[difficulty];
+
+            await db.run(`
+                UPDATE users 
+                SET credits = COALESCE(credits, 0) + ?
+                WHERE id = ?
+            `, creditsAwarded, question.author_id);
+
+            // Record credit transaction
+            await db.run(`
+                INSERT INTO credit_transactions (user_id, amount, type, description)
+                VALUES (?, ?, 'QUESTION_VERIFIED', ?)
+            `, question.author_id, creditsAwarded, `Question verified: ${question.title}`);
+
+            await db.exec('COMMIT');
+
+            console.log(`[Admin] Question ${questionId} verified by admin ${adminId}, ${creditsAwarded} credits awarded`);
+
+            res.json({
+                message: 'Question verified successfully',
+                creditsAwarded,
+                questionId
+            });
+
+        } catch (error) {
+            await db.exec('ROLLBACK');
+            throw error;
+        }
+
+    } catch (error) {
+        console.error('[Admin] Error verifying question:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// 3. Delete Question (Admin Only)
+app.delete('/admin/questions/:id/delete', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const questionId = req.params.id;
+        const db = await getDb();
+
+        // Check if question exists
+        const question = await db.get('SELECT * FROM questions WHERE id = ?', questionId);
+        if (!question) {
+            return res.status(404).json({ error: 'Question not found' });
+        }
+
+        try {
+            await db.exec('BEGIN TRANSACTION');
+
+            // Delete associated votes on answers
+            await db.run(`
+                DELETE FROM votes 
+                WHERE target_type = 'answer' 
+                AND target_id IN (SELECT id FROM answers WHERE question_id = ?)
+            `, questionId);
+
+            // Delete associated answers
+            await db.run('DELETE FROM answers WHERE question_id = ?', questionId);
+
+            // Delete votes on the question itself
+            await db.run(`
+                DELETE FROM votes 
+                WHERE target_type = 'question' AND target_id = ?
+            `, questionId);
+
+            // Delete the question
+            await db.run('DELETE FROM questions WHERE id = ?', questionId);
+
+            await db.exec('COMMIT');
+
+            console.log(`[Admin] Question ${questionId} and associated content deleted`);
+
+            res.json({ message: 'Question and associated content deleted successfully' });
+
+        } catch (error) {
+            await db.exec('ROLLBACK');
+            throw error;
+        }
+
+    } catch (error) {
+        console.error('[Admin] Error deleting question:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
