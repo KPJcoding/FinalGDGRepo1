@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { BookOpen, GitMerge, CheckCircle, Star, ArrowRight, Clock, FileText, Trophy, ThumbsUp, ThumbsDown, PlusCircle, X } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -62,6 +63,7 @@ const TIER_COLORS = {
 };
 
 export default function Contribute() {
+  const { user: authUser } = useAuth();
   const navigate = useNavigate();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
@@ -186,6 +188,48 @@ export default function Contribute() {
     if (seconds < 3600) return `${Math.floor(seconds / 60)} minutes ago`;
     if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
     return `${Math.floor(seconds / 86400)} days ago`;
+  };
+
+  const handleDeleteQuestion = async (questionId: number) => {
+    if (!confirm('Are you sure you want to delete this question? This will also delete all associated answers.')) {
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${API_URL}/admin/questions/${questionId}/delete`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        showToast('Question deleted successfully', 'success');
+        // Remove from local state
+        setQuestions(questions.filter(q => q.id !== questionId));
+      } else {
+        const data = await response.json();
+        showToast(data.error || 'Failed to delete question', 'error');
+      }
+    } catch (error) {
+      console.error('Error deleting question:', error);
+      showToast('Network error', 'error');
+    }
+  };
+
+  // Check if user is admin
+  const isAdmin = () => {
+    try {
+      if (authUser) {
+        const ADMIN_EMAILS = ['bt25csh068@iiitn.ac.in'];
+        return authUser.role === 'ADMIN' || (authUser.email && ADMIN_EMAILS.includes(authUser.email));
+      }
+
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      const ADMIN_EMAILS = ['bt25csh068@iiitn.ac.in'];
+      return user.role === 'ADMIN' || (user.email && ADMIN_EMAILS.includes(user.email));
+    } catch {
+      return false;
+    }
   };
 
   return (
@@ -380,13 +424,28 @@ export default function Contribute() {
                         <Star className="w-4 h-4" />
                         {TIER_POINTS[question.difficulty]} pts
                       </div>
-                      <Button
-                        variant="accent"
-                        size="sm"
-                        onClick={() => navigate(`/questions/${question.id}`)}
-                      >
-                        Answer
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="accent"
+                          size="sm"
+                          onClick={() => navigate(`/questions/${question.id}`)}
+                        >
+                          Answer
+                        </Button>
+                        {isAdmin() && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteQuestion(question.id);
+                            }}
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </motion.div>

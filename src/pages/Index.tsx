@@ -622,18 +622,14 @@ export default function Index() {
                   <MessageSquare className="w-5 h-5 text-sol-cyan" />
                   Report an Issue
                 </h3>
-                <p className="text-sm text-muted-foreground mb-4">
+                <p className="text-sm text-muted-foreground mb-6">
                   Found a bug or have a suggestion? Let us know and we'll work on it.
                 </p>
-                <form className="space-y-4">
-                  <textarea
-                    placeholder="Describe your issue or suggestion..."
-                    className="w-full h-24 px-4 py-3 rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:border-sol-cyan focus:ring-1 focus:ring-sol-cyan/20 resize-none text-sm"
-                  />
-                  <Button variant="accent" size="sm" className="w-full">
-                    Submit Report
+                <Link to="/report-issue">
+                  <Button variant="accent" className="w-full">
+                    Go to Report Form
                   </Button>
-                </form>
+                </Link>
               </motion.div>
             </div>
           </div>

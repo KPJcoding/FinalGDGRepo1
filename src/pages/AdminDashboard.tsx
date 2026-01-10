@@ -2,7 +2,7 @@ import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { motion } from "framer-motion";
-import { Shield, CheckCircle, XCircle, Clock, Users, FileText, TrendingUp, Loader2, PlayCircle, Trophy, Trash2 } from "lucide-react";
+import { Shield, CheckCircle, XCircle, Clock, Users, FileText, TrendingUp, Loader2, PlayCircle, Trophy, Trash2, AlertCircle } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -46,6 +46,19 @@ interface DashboardStats {
     }>;
 }
 
+interface Issue {
+    id: number;
+    title: string;
+    description: string;
+    category: string;
+    status: 'open' | 'in_review' | 'resolved';
+    image_path: string | null;
+    reporter_name: string | null;
+    reporter_email: string | null;
+    created_at: string;
+    admin_notes: string | null;
+}
+
 const TIER_COLORS = {
     Bronze: "bg-sol-verified/10 text-sol-verified border-sol-verified/20",
     Silver: "bg-blue-500/10 text-blue-600 border-blue-500/20",
@@ -63,13 +76,18 @@ export default function AdminDashboard() {
     const [verifiedAnswers, setVerifiedAnswers] = useState<UnverifiedAnswer[]>([]);
     const [verifyingQuestionId, setVerifyingQuestionId] = useState<number | null>(null);
     const [selectedDifficulty, setSelectedDifficulty] = useState<string>('Bronze');
+    const [issues, setIssues] = useState<Issue[]>([]);
+    const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
+    const [statusUpdate, setStatusUpdate] = useState<{ status: string; notes: string }>({ status: '', notes: '' });
 
     useEffect(() => {
         checkAdminAccess();
         fetchStats();
         fetchUnverifiedAnswers();
         fetchPendingQuestions();
+
         fetchVerifiedAnswers();
+        fetchIssues();
     }, []);
 
     const checkAdminAccess = async () => {
@@ -167,6 +185,48 @@ export default function AdminDashboard() {
         } catch (error) {
             console.error('Error fetching verified answers:', error);
             setVerifiedAnswers([]);
+        }
+    };
+
+    const fetchIssues = async () => {
+        try {
+            const token = localStorage.getItem('auth_token');
+            const response = await fetch(`${API_URL}/admin/issues`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                setIssues(data);
+            }
+        } catch (error) {
+            console.error('Failed to fetch issues:', error);
+        }
+    };
+
+    const handleUpdateIssue = async (id: number) => {
+        try {
+            const token = localStorage.getItem('auth_token');
+            const response = await fetch(`${API_URL}/admin/issues/${id}`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    status: statusUpdate.status,
+                    admin_notes: statusUpdate.notes
+                })
+            });
+
+            if (response.ok) {
+                showToast('Issue updated successfully', 'success');
+                fetchIssues();
+                setSelectedIssue(null);
+            } else {
+                showToast('Failed to update issue', 'error');
+            }
+        } catch (error) {
+            showToast('Network error', 'error');
         }
     };
 
@@ -393,6 +453,80 @@ export default function AdminDashboard() {
                 </div>
 
                 <div className="container mx-auto px-4 py-8">
+
+                    {/* Reported Issues Section */}
+                    <div className="mb-12">
+                        <div className="flex items-center gap-2 mb-6">
+                            <AlertCircle className="w-5 h-5 text-red-500" />
+                            <h2 className="text-xl font-bold font-heading">Reported Issues</h2>
+                            <Badge variant="secondary">{issues.filter(i => i.status === 'open').length} open</Badge>
+                        </div>
+
+                        {issues.length === 0 ? (
+                            <div className="text-center py-12 bg-card border border-border rounded-xl border-dashed">
+                                <CheckCircle className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                                <h3 className="text-lg font-medium">No issues reported</h3>
+                                <p className="text-muted-foreground">Everything is running smoothly.</p>
+                            </div>
+                        ) : (
+                            <div className="grid gap-4">
+                                {issues.map((issue) => (
+                                    <motion.div
+                                        key={issue.id}
+                                        initial={{ opacity: 0, y: 20 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        className="bg-card border border-border rounded-xl p-6 shadow-sm"
+                                    >
+                                        <div className="flex flex-col md:flex-row justify-between gap-4">
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <Badge
+                                                        variant={issue.status === 'open' ? 'destructive' : issue.status === 'in_review' ? 'default' : 'secondary'}
+                                                        className="capitalize"
+                                                    >
+                                                        {issue.status.replace('_', ' ')}
+                                                    </Badge>
+                                                    <span className="text-sm text-muted-foreground">
+                                                        {new Date(issue.created_at).toLocaleDateString()}
+                                                    </span>
+                                                    <span className="text-sm text-muted-foreground">•</span>
+                                                    <span className="text-sm font-medium">{issue.category}</span>
+                                                </div>
+                                                <h3 className="text-lg font-semibold mb-2">{issue.title}</h3>
+                                                <p className="text-muted-foreground text-sm line-clamp-2">{issue.description}</p>
+                                                {issue.reporter_email && (
+                                                    <p className="text-xs text-muted-foreground mt-2">
+                                                        Reported by: {issue.reporter_name || 'Anonymous'} ({issue.reporter_email})
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <div className="flex items-start gap-4">
+                                                {issue.image_path && (
+                                                    <a
+                                                        href={`${API_URL}${issue.image_path}`}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="hidden md:block w-24 h-24 rounded-lg bg-muted object-cover border border-border overflow-hidden shrink-0"
+                                                    >
+                                                        <img src={`${API_URL}${issue.image_path}`} alt="Attachment" className="w-full h-full object-cover" />
+                                                    </a>
+                                                )}
+                                                <Button
+                                                    variant="outline"
+                                                    onClick={() => {
+                                                        setSelectedIssue(issue);
+                                                        setStatusUpdate({ status: issue.status, notes: issue.admin_notes || '' });
+                                                    }}
+                                                >
+                                                    Manage
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </motion.div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
 
                     {/* Pending Questions Section */}
                     <div className="mb-12">
@@ -627,6 +761,82 @@ export default function AdminDashboard() {
                     </div>
                 </div>
             </div>
+
+
+            {/* Issue Management Modal */}
+            {
+                selectedIssue && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            className="bg-card border border-border rounded-xl shadow-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto flex flex-col"
+                        >
+                            <div className="p-6 border-b border-border flex justify-between items-center">
+                                <h2 className="text-xl font-bold">Manage Issue #{selectedIssue.id}</h2>
+                                <Button variant="ghost" size="icon" onClick={() => setSelectedIssue(null)}>
+                                    <XCircle className="w-6 h-6" />
+                                </Button>
+                            </div>
+
+                            <div className="p-6 space-y-6">
+                                <div>
+                                    <h3 className="font-semibold text-lg mb-1">{selectedIssue.title}</h3>
+                                    <div className="flex gap-2 text-sm text-muted-foreground mb-4">
+                                        <span>{selectedIssue.category}</span>
+                                        <span>•</span>
+                                        <span>{new Date(selectedIssue.created_at).toLocaleString()}</span>
+                                    </div>
+                                    <div className="bg-muted/30 p-4 rounded-lg text-sm whitespace-pre-wrap">
+                                        {selectedIssue.description}
+                                    </div>
+                                </div>
+
+                                {selectedIssue.image_path && (
+                                    <div>
+                                        <label className="text-sm font-medium mb-2 block">Attachment</label>
+                                        <div className="rounded-lg border border-border overflow-hidden bg-muted/20">
+                                            <img
+                                                src={`${API_URL}${selectedIssue.image_path}`}
+                                                alt="Issue Attachment"
+                                                className="max-w-full h-auto mx-auto max-h-96"
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-border">
+                                    <div>
+                                        <label className="text-sm font-medium mb-2 block">Status</label>
+                                        <select
+                                            value={statusUpdate.status}
+                                            onChange={(e) => setStatusUpdate({ ...statusUpdate, status: e.target.value })}
+                                            className="w-full px-3 py-2 rounded-md border border-border bg-background"
+                                        >
+                                            <option value="open">Open</option>
+                                            <option value="in_review">In Review</option>
+                                            <option value="resolved">Resolved</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-sm font-medium mb-2 block">Admin Notes</label>
+                                        <textarea
+                                            value={statusUpdate.notes}
+                                            onChange={(e) => setStatusUpdate({ ...statusUpdate, notes: e.target.value })}
+                                            placeholder="Internal notes..."
+                                            className="w-full px-3 py-2 rounded-md border border-border bg-background min-h-[100px]"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="p-6 border-t border-border bg-muted/10 flex justify-end gap-3">
+                                <Button variant="outline" onClick={() => setSelectedIssue(null)}>Cancel</Button>
+                                <Button onClick={() => handleUpdateIssue(selectedIssue.id)}>Save Changes</Button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
         </Layout>
     );
 }

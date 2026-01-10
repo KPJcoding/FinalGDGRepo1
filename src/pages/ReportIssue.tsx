@@ -1,26 +1,99 @@
 import { Layout } from "@/components/layout/Layout";
 import { motion, AnimatePresence } from "framer-motion";
-import { AlertCircle, Send, CheckCircle, ArrowLeft } from "lucide-react";
+import { AlertCircle, Send, CheckCircle, ArrowLeft, Upload, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useState, useRef } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function ReportIssue() {
+  const { user } = useAuth();
   const [issueType, setIssueType] = useState("");
+  const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(user?.email || "");
+  const [image, setImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [error, setError] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        setError("File size must be less than 5MB");
+        return;
+      }
+      if (!file.type.startsWith("image/")) {
+        setError("Only image files are allowed");
+        return;
+      }
+      setImage(file);
+      setImagePreview(URL.createObjectURL(file));
+      setError("");
+    }
+  };
+
+  const removeImage = () => {
+    setImage(null);
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImagePreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!description.trim()) return;
-    
+    if (!title.trim() || !description.trim() || !issueType) {
+      setError("Please fill in all required fields");
+      return;
+    }
+
     setIsSubmitting(true);
-    setTimeout(() => {
-      setIsSubmitting(false);
+    setError("");
+
+    try {
+      const formData = new FormData();
+      formData.append("title", title);
+      formData.append("description", description);
+      formData.append("category", issueType);
+      if (email) formData.append("email", email);
+      if (image) formData.append("image", image);
+
+      // Get token if logged in
+      const token = localStorage.getItem('auth_token');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_URL}/issues`, {
+        method: "POST",
+        headers: headers,
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Submission failed:', response.status, errorText);
+        throw new Error(`Failed to submit report: ${response.status} ${errorText}`);
+      }
+
       setIsSubmitted(true);
-    }, 1500);
+      // Reset form
+      setTitle("");
+      setDescription("");
+      setIssueType("");
+      removeImage();
+    } catch (err: any) {
+      console.error('Error submitting report:', err);
+      setError(err.message || "Something went wrong. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const issueTypes = [
@@ -72,11 +145,16 @@ export default function ReportIssue() {
                   <p className="text-muted-foreground mb-6">
                     Thank you for helping us improve Sol-1. Our team will review your report and take appropriate action.
                   </p>
-                  <Link to="/">
-                    <Button variant="accent">
-                      Return to Home
+                  <div className="flex gap-4 justify-center">
+                    <Link to="/">
+                      <Button variant="outline">
+                        Return to Home
+                      </Button>
+                    </Link>
+                    <Button variant="accent" onClick={() => setIsSubmitted(false)}>
+                      Submit Another
                     </Button>
-                  </Link>
+                  </div>
                 </motion.div>
               ) : (
                 <motion.form
@@ -86,9 +164,15 @@ export default function ReportIssue() {
                   onSubmit={handleSubmit}
                   className="bg-card border border-border rounded-xl p-6 space-y-6"
                 >
+                  {error && (
+                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-500 text-sm">
+                      {error}
+                    </div>
+                  )}
+
                   <div>
                     <label className="block text-sm font-medium text-foreground mb-2">
-                      Issue Type
+                      Issue Type *
                     </label>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                       {issueTypes.map((type) => (
@@ -96,11 +180,10 @@ export default function ReportIssue() {
                           key={type}
                           type="button"
                           onClick={() => setIssueType(type)}
-                          className={`px-4 py-2 rounded-lg text-sm border transition-all ${
-                            issueType === type
-                              ? "bg-sol-cyan/10 border-sol-cyan text-sol-cyan"
-                              : "border-border text-muted-foreground hover:border-sol-cyan/50"
-                          }`}
+                          className={`px-4 py-2 rounded-lg text-sm border transition-all ${issueType === type
+                            ? "bg-sol-cyan/10 border-sol-cyan text-sol-cyan"
+                            : "border-border text-muted-foreground hover:border-sol-cyan/50"
+                            }`}
                         >
                           {type}
                         </button>
@@ -110,15 +193,69 @@ export default function ReportIssue() {
 
                   <div>
                     <label className="block text-sm font-medium text-foreground mb-2">
-                      Describe the Issue *
+                      Title *
+                    </label>
+                    <input
+                      type="text"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      placeholder="Brief summary of the issue"
+                      className="w-full px-4 py-3 rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:border-sol-cyan focus:ring-1 focus:ring-sol-cyan/20"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">
+                      Description *
                     </label>
                     <textarea
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
-                      placeholder="Please provide as much detail as possible about the issue you're experiencing..."
+                      placeholder="Please provide as much detail as possible..."
                       className="w-full h-40 px-4 py-3 rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:border-sol-cyan focus:ring-1 focus:ring-sol-cyan/20 resize-none"
                       required
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">
+                      Screenshot (optional)
+                    </label>
+                    <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-sol-cyan/50 transition-colors">
+                      {imagePreview ? (
+                        <div className="relative inline-block">
+                          <img src={imagePreview} alt="Preview" className="max-h-48 rounded-lg" />
+                          <button
+                            type="button"
+                            onClick={removeImage}
+                            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div
+                          onClick={() => fileInputRef.current?.click()}
+                          className="cursor-pointer"
+                        >
+                          <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                          <p className="text-sm text-muted-foreground">
+                            Click to upload or drag and drop
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            PNG, JPG, WEBP up to 5MB
+                          </p>
+                        </div>
+                      )}
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageChange}
+                        className="hidden"
+                      />
+                    </div>
                   </div>
 
                   <div>
@@ -132,16 +269,13 @@ export default function ReportIssue() {
                       placeholder="your.email@iiitn.ac.in"
                       className="w-full px-4 py-3 rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:border-sol-cyan focus:ring-1 focus:ring-sol-cyan/20"
                     />
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Provide your email if you'd like to receive updates about this issue.
-                    </p>
                   </div>
 
                   <Button
                     type="submit"
                     variant="accent"
                     className="w-full gap-2"
-                    disabled={!description.trim() || isSubmitting}
+                    disabled={isSubmitting || !title || !description || !issueType}
                   >
                     {isSubmitting ? (
                       <motion.div

@@ -6,6 +6,13 @@ import jwt from 'jsonwebtoken';
 import { getDb } from './db.js';
 import { sendOtpEmail, verifyConnection } from './mailer.js';
 import { requireAdmin } from './adminMiddleware.js';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
@@ -15,7 +22,46 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key_123';
 const SALT_ROUNDS = 10;
 
 app.use(cors());
+app.use(cors());
 app.use(express.json());
+
+// Ensure uploads directory exists
+const uploadDir = path.join(__dirname, 'uploads', 'issues');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// Multer Configuration
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, 'issue-' + uniqueSuffix + path.extname(file.originalname));
+    }
+});
+
+const upload = multer({
+    storage: storage,
+    limits: {
+        fileSize: 5 * 1024 * 1024 // 5MB limit
+    },
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = /jpeg|jpg|png|webp/;
+        const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+        const mimetype = allowedTypes.test(file.mimetype);
+
+        if (extname && mimetype) {
+            return cb(null, true);
+        } else {
+            cb(new Error('Only images are allowed (jpeg, jpg, png, webp)'));
+        }
+    }
+});
+
+// Serve uploads statically
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Helper: Validate Email
 function isValidEmail(email) {
@@ -796,6 +842,115 @@ app.post('/answers/:id/vote', authenticateToken, async (req, res) => {
 
     } catch (error) {
         console.error('Error in /answers/:id/vote:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// -------------------------------------------------------------
+// REPORT ISSUE FLOW
+// -------------------------------------------------------------
+
+// 1. Submit Issue
+app.post('/issues', upload.single('image'), async (req, res) => {
+    try {
+        const { title, description, category, email } = req.body;
+        // User is optional (can report anonymously or logged in)
+        // But we want to capture user if token exists. The optional auth check:
+        let reporterId = null;
+        let reporterName = null;
+        let reporterEmail = email || null;
+
+        const authHeader = req.headers['authorization'];
+        let userUser = null;
+
+        if (authHeader) {
+            try {
+                const token = authHeader.split(' ')[1];
+                const decoded = jwt.verify(token, JWT_SECRET);
+                const db = await getDb();
+                userUser = await db.get('SELECT id, name, email FROM users WHERE id = ?', decoded.userId);
+                if (userUser) {
+                    reporterId = userUser.id;
+                    reporterName = userUser.name;
+                    reporterEmail = userUser.email; // Prefer account email
+                }
+            } catch (e) {
+                // Ignore invalid token for reporting
+            }
+        }
+
+        if (!title || !description || !category) {
+            return res.status(400).json({ error: 'Title, description, and category are required' });
+        }
+
+        const imagePath = req.file ? `/uploads/issues/${req.file.filename}` : null;
+
+        const db = await getDb();
+        const result = await db.run(
+            `INSERT INTO issues (title, description, category, image_path, reporter_id, reporter_name, reporter_email, status) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'open')`,
+            title, description, category, imagePath, reporterId, reporterName, reporterEmail
+        );
+
+        res.json({ message: 'Report submitted successfully', id: result.lastID });
+    } catch (error) {
+        console.error('Error in POST /issues:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// 2. Get Issues (Admin)
+// We need to use 'authenticateToken' and verify admin role
+app.get('/admin/issues', authenticateToken, async (req, res) => {
+    try {
+        const { userId } = req.user;
+        const db = await getDb();
+
+        // Strict Admin Check
+        const user = await db.get('SELECT role, email FROM users WHERE id = ?', userId);
+        const ADMIN_EMAILS = ['bt25csh068@iiitn.ac.in'];
+        const isAdmin = user && (user.role === 'ADMIN' || ADMIN_EMAILS.includes(user.email));
+
+        if (!isAdmin) {
+            return res.status(403).json({ error: 'Admin access required' });
+        }
+
+        const issues = await db.all('SELECT * FROM issues ORDER BY created_at DESC');
+        res.json(issues);
+
+    } catch (error) {
+        console.error('Error in GET /admin/issues:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// 3. Update Issue (Admin)
+app.put('/admin/issues/:id', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, admin_notes } = req.body;
+        const { userId } = req.user;
+
+        const db = await getDb();
+
+        // Strict Admin Check
+        const user = await db.get('SELECT role, email FROM users WHERE id = ?', userId);
+        const ADMIN_EMAILS = ['bt25csh068@iiitn.ac.in'];
+        const isAdmin = user && (user.role === 'ADMIN' || ADMIN_EMAILS.includes(user.email));
+
+        if (!isAdmin) {
+            return res.status(403).json({ error: 'Admin access required' });
+        }
+
+        await db.run(
+            'UPDATE issues SET status = ?, admin_notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            status, admin_notes, id
+        );
+
+        res.json({ message: 'Issue updated successfully' });
+
+    } catch (error) {
+        console.error('Error in PUT /admin/issues/:id:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });

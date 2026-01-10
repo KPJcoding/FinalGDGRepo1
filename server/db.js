@@ -156,9 +156,27 @@ export async function getDb() {
       await dbInstance.exec("ALTER TABLE votes ADD COLUMN last_voted_at DATETIME");
       // Update existing rows to use created_at value
       await dbInstance.exec("UPDATE votes SET last_voted_at = created_at WHERE last_voted_at IS NULL");
+      await dbInstance.exec("UPDATE votes SET last_voted_at = created_at WHERE last_voted_at IS NULL");
     }
 
-    // Migrate existing difficulty values to difficulty_tier
+    // Reports/Issues Table
+    await dbInstance.exec(`
+      CREATE TABLE IF NOT EXISTS issues (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        category TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'open', -- open, in_review, resolved
+        image_path TEXT,
+        reporter_id INTEGER,
+        reporter_name TEXT,
+        reporter_email TEXT,
+        admin_notes TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (reporter_id) REFERENCES users(id)
+      );
+    `);
     console.log("[DB] Migrating difficulty values to difficulty_tier");
     await dbInstance.exec(`
       UPDATE questions 

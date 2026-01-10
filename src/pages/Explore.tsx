@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Filter, CheckCircle, ThumbsUp, ThumbsDown, ArrowRight, Shield, ChevronDown, Eye, FileText, Trash2 } from "lucide-react";
+import { Search, Filter, CheckCircle, ThumbsUp, ThumbsDown, ArrowRight, Shield, ChevronDown, Eye, FileText, X } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -74,6 +74,7 @@ const TIER_POINTS = {
 };
 
 export default function Explore() {
+  const { user: authUser } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSemester, setSelectedSemester] = useState("All");
   const [selectedSubject, setSelectedSubject] = useState("All Subjects");
@@ -82,6 +83,23 @@ export default function Explore() {
   const [selectedQuestion, setSelectedQuestion] = useState<QuestionWithAnswers | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Get current user dynamically from auth context
+  const currentUser = authUser || (() => {
+    try {
+      const user = localStorage.getItem('user');
+      return user ? JSON.parse(user) : null;
+    } catch {
+      return null;
+    }
+  })();
+
+  // Check if current user is admin (dynamically evaluated)
+  const isAdmin = (() => {
+    if (!currentUser) return false;
+    const ADMIN_EMAILS = ['bt25csh068@iiitn.ac.in'];
+    return currentUser.role === 'ADMIN' || (currentUser.email && ADMIN_EMAILS.includes(currentUser.email));
+  })();
 
   useEffect(() => {
     fetchQuestions();
@@ -571,6 +589,7 @@ function QuestionDetail({ question, onBack, onVote, getTimeAgo, handleDeleteAnsw
         </div>
       </div>
 
+
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold text-foreground">{question.answers.length} Verified Answers</h2>
@@ -595,7 +614,7 @@ function QuestionDetail({ question, onBack, onVote, getTimeAgo, handleDeleteAnsw
                 onClick={() => handleDeleteAnswer(answer.id)}
                 className="absolute top-4 right-4 text-red-500 hover:text-red-700 hover:bg-red-50"
               >
-                <Trash2 className="w-4 h-4 mr-1" />
+                <X className="w-4 h-4 mr-1" />
                 Delete
               </Button>
             )}
