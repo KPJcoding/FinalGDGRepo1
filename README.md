@@ -1,73 +1,108 @@
-# Welcome to your Lovable project
+# 🏫 Sol-1 — IIITN Student Knowledge & Q&A Platform
 
-## Project info
+Sol-1 is a full-stack web application designed **exclusively for IIIT Nagpur students**, focused on structured knowledge sharing, peer-to-peer learning, and moderated academic discussion.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+The platform includes:
+- A Q&A system with difficulty tiers and credits
+- Admin-moderated verification
+- A role-based access system
+- A chatbot **trained specifically on IIITN-related information**
 
-## How can I edit this code?
+This README explains **exactly how judges can run Sol-1 locally on their device** and evaluate all features.
 
-There are several ways of editing your application.
+---
 
-**Use Lovable**
+## 🔐 Access Restriction (Important)
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+⚠️ **Only `@iiitn.ac.in` email IDs are allowed to perform any operations on the platform**, including:
+- Asking questions
+- Answering questions
+- Voting
+- Admin or maintainer actions
 
-Changes made via Lovable will be committed automatically to this repo.
+This restriction is enforced at the backend level.
 
-**Use your preferred IDE**
+---
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+## 🧩 Tech Stack (Brief Overview)
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+- **Frontend:** React + Vite  
+- **Backend:** Node.js + Express  
+- **Database:** SQLite  
+- **Authentication:** JWT + OTP-based verification  
+- **Roles:** Normal Users & Admin/Maintainer  
+- **Chatbot:** RAG-based chatbot trained on IIITN-specific data
 
-Follow these steps:
+---
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+## 🚀 How to Run Sol-1 on Your Device
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+### 1️⃣ Clone the Repository
+```bash
+git clone https://github.com/Monarchy712/Sol-1
+cd Sol-1
+npm install
+```
 
-# Step 3: Install the necessary dependencies.
-npm i
+Open a new terminal (or an integrated terminal) and run:
+```bash
+cd server
+npm install
+```
+### 2️⃣ Install Frontend Dependencies (Root Directory)
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+From the root directory of the project, run:
+
+```bash  
+npm install
+```
+### 3️⃣ Install Backend Dependencies
+
+Open a new integrated terminal and navigate to the `server` folder:
+
+```bash
+cd server
+npm install
+```
+
+### 4️⃣ Start the Frontend
+
+Go back to the root directory terminal and run:
+
+```bash
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+### 5️⃣ Start the Backend
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+In the `server` folder terminal, run:
 
-**Use GitHub Codespaces**
+```bash
+node index.js
+```
+This starts the backend services required for authentication, admin operations, and real-time data flow.
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+### 6️⃣ Access the Website
 
-## What technologies are used for this project?
+Open the localhost URL shown after running `npm run dev` in your browser.
 
-This project is built with:
+# 🔓 Authentication and Access Control
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+### Important for Judges
 
-## How can I deploy this project?
+- Only IIIT Nagpur email IDs ending with `@iiitn.ac.in` are allowed to perform operations on the platform.
+- This restriction simulates a real institutional production environment.
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+---
 
-## Can I connect a custom domain to my Lovable project?
+## Demo Login Credentials (For Evaluation)
 
-Yes, you can!
+### Normal User Account
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+Email: `bt25csh048@iiitn.ac.in`  
+Password: `12345678`
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+### Admin Account
+
+Email: `bt25csh068@iiitn.ac.in`  
+Password: `hackathon`
