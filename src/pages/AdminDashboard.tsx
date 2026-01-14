@@ -121,7 +121,13 @@ export default function AdminDashboard() {
     const checkAdminAccess = async () => {
         const token = localStorage.getItem('auth_token');
         if (!token) {
-            navigate('/join');
+            // Add small delay to prevent redirect during page reload
+            setTimeout(() => {
+                const recheckToken = localStorage.getItem('auth_token');
+                if (!recheckToken) {
+                    navigate('/join');
+                }
+            }, 100);
             return;
         }
 

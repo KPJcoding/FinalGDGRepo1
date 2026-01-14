@@ -1,6 +1,6 @@
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
-import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -29,8 +29,21 @@ interface Goodie {
     is_active: number;
 }
 
+interface Purchase {
+    id: number;
+    user_id: number;
+    goodie_id: number;
+    cost_paid: number;
+    status: string;
+    created_at: string;
+    goodie_name: string;
+    description: string;
+    image_url: string;
+    category: string;
+}
+
 export default function Goodies() {
-    const { isAuthenticated, user } = useAuth();
+    const { isAuthenticated, user, isLoading, updateUser } = useAuth();
     const navigate = useNavigate();
     const [goodies, setGoodies] = useState<Goodie[]>([]);
     const [loading, setLoading] = useState(true);
@@ -39,15 +52,20 @@ export default function Goodies() {
     const [selectedGoodie, setSelectedGoodie] = useState<Goodie | null>(null);
     const [purchasing, setPurchasing] = useState(false);
     const [showPurchaseDialog, setShowPurchaseDialog] = useState(false);
+    const [purchases, setPurchases] = useState<Purchase[]>([]);
+    const [showPurchaseHistory, setShowPurchaseHistory] = useState(false);
 
     useEffect(() => {
+        // Don't redirect if still loading auth state
+        if (isLoading) return;
+
         if (!isAuthenticated) {
             navigate("/signin");
             return;
         }
         fetchGoodies();
         fetchUserCredits();
-    }, [isAuthenticated]);
+    }, [isAuthenticated, isLoading]);
 
     const fetchGoodies = async () => {
         try {
@@ -77,6 +95,21 @@ export default function Goodies() {
             }
         } catch (error) {
             console.error("Failed to fetch user credits:", error);
+        }
+    };
+
+    const fetchPurchaseHistory = async () => {
+        try {
+            const token = localStorage.getItem("auth_token");
+            const res = await fetch("/api/users/purchases", {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setPurchases(data);
+            }
+        } catch (error) {
+            console.error("Failed to fetch purchase history:", error);
         }
     };
 
@@ -115,6 +148,10 @@ export default function Goodies() {
                 const data = await res.json();
                 toast.success(`Successfully purchased ${selectedGoodie.name}!`);
                 setUserCredits(data.credits);
+
+                // Update global user credits in AuthContext
+                updateUser({ credits: data.credits });
+
                 fetchGoodies(); // Refresh to update stock
                 setShowPurchaseDialog(false);
             } else {
@@ -192,6 +229,20 @@ export default function Goodies() {
                                 >
                                     {userTier} Tier
                                 </Badge>
+
+                                {/* My Goodies Button */}
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                        fetchPurchaseHistory();
+                                        setShowPurchaseHistory(true);
+                                    }}
+                                    className="w-full mt-2 bg-primary-foreground/5 hover:bg-primary-foreground/10 border-primary-foreground/20"
+                                >
+                                    <Package className="w-4 h-4 mr-2" />
+                                    My Goodies
+                                </Button>
                             </div>
                         </motion.div>
                     </div>
@@ -342,6 +393,93 @@ export default function Goodies() {
                             {purchasing ? "Processing..." : "Confirm Purchase"}
                         </Button>
                     </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Purchase History Dialog */}
+            <Dialog open={showPurchaseHistory} onOpenChange={setShowPurchaseHistory}>
+                <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Package className="w-5 h-5 text-sol-cyan" />
+                            My Goodies
+                        </DialogTitle>
+                        <DialogDescription>
+                            Your purchase history and order details
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-4 py-4">
+                        {purchases.length === 0 ? (
+                            <div className="text-center py-8">
+                                <Package className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
+                                <p className="text-muted-foreground">No purchases yet</p>
+                                <p className="text-sm text-muted-foreground mt-1">Browse the marketplace and get your first goodie!</p>
+                            </div>
+                        ) : (
+                            purchases.map((purchase) => (
+                                <Card key={purchase.id} className="overflow-hidden">
+                                    <CardHeader className="bg-muted/30 pb-3">
+                                        <div className="flex justify-between items-start">
+                                            <div>
+                                                <p className="text-xs text-muted-foreground">Order Date</p>
+                                                <p className="font-semibold">
+                                                    {new Date(purchase.created_at).toLocaleDateString('en-US', {
+                                                        month: 'long',
+                                                        day: 'numeric',
+                                                        year: 'numeric'
+                                                    })}
+                                                </p>
+                                                <p className="text-sm text-muted-foreground">
+                                                    {new Date(purchase.created_at).toLocaleTimeString('en-US', {
+                                                        hour: '2-digit',
+                                                        minute: '2-digit'
+                                                    })}
+                                                </p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-xs text-muted-foreground">Order #{purchase.id}</p>
+                                                <Badge className="mt-1" variant={purchase.status === 'completed' ? 'default' : 'secondary'}>
+                                                    {purchase.status}
+                                                </Badge>
+                                            </div>
+                                        </div>
+                                    </CardHeader>
+                                    <CardContent className="pt-4">
+                                        <div className="flex gap-4">
+                                            <img
+                                                src={purchase.image_url}
+                                                alt={purchase.goodie_name}
+                                                className="w-20 h-20 object-cover rounded-lg"
+                                            />
+                                            <div className="flex-1">
+                                                <h4 className="font-semibold">{purchase.goodie_name}</h4>
+                                                <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                                                    {purchase.description}
+                                                </p>
+                                                <Badge className={`mt-2 ${purchase.category === 'Apparel' ? 'bg-purple-500/10 text-purple-700' :
+                                                    purchase.category === 'Stationery' ? 'bg-blue-500/10 text-blue-700' :
+                                                        purchase.category === 'Digital' ? 'bg-green-500/10 text-green-700' :
+                                                            'bg-orange-500/10 text-orange-700'
+                                                    }`} variant="outline">
+                                                    {purchase.category}
+                                                </Badge>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-xs text-muted-foreground">Credits Spent</p>
+                                                <div className="flex items-center gap-1 justify-end mt-1">
+                                                    <Coins className="w-4 h-4 text-yellow-500" />
+                                                    <span className="text-lg font-bold text-yellow-600 dark:text-yellow-500">
+                                                        {purchase.cost_paid}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            ))
+                        )}
+                    </div>
                 </DialogContent>
             </Dialog>
         </Layout>
