@@ -17,6 +17,7 @@ import AskQuestionPage from "./pages/AskQuestionPage";
 import Guidelines from "./pages/Guidelines";
 import ReportIssue from "./pages/ReportIssue";
 import AdminDashboard from "./pages/AdminDashboard";
+import Goodies from "./pages/Goodies";
 import NotFound from "./pages/NotFound";
 import { AuthProvider } from "./contexts/AuthContext";
 
@@ -44,6 +45,7 @@ const App = () => (
             <Route path="/guidelines" element={<Guidelines />} />
             <Route path="/report-issue" element={<ReportIssue />} />
             <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/goodies" element={<Goodies />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

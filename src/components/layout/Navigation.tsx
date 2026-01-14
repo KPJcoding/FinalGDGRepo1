@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Search, BookOpen, Users, Trophy, Menu, X, Sparkles, LogOut, Trash2, User, Coins, Shield } from "lucide-react";
+import { Search, BookOpen, Users, Trophy, Menu, X, Sparkles, LogOut, Trash2, User, Coins, Shield, Gift } from "lucide-react";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
@@ -147,6 +147,16 @@ export function Navigation() {
                       </div>
                     </div>
                   )}
+
+                  <DropdownMenuSeparator />
+
+                  {/* Goodies Link */}
+                  <Link to="/goodies">
+                    <DropdownMenuItem className="cursor-pointer">
+                      <Gift className="w-4 h-4 mr-2 text-sol-cyan" />
+                      <span className="font-semibold">Goodies</span>
+                    </DropdownMenuItem>
+                  </Link>
 
                   <DropdownMenuSeparator />
 

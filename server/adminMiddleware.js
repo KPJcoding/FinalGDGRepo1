@@ -4,39 +4,52 @@ import { getDb } from './db.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key_123';
 
-/**
- * Middleware to check if the authenticated user has ADMIN role
- * Must be used AFTER authenticateToken middleware
- */
-export async function requireAdmin(req, res, next) {
-    try {
-        // User should already be authenticated by authenticateToken middleware
-        const { userId } = req.user;
+// Authenticate token and populate req.user
+const authenticateToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
 
-        if (!userId) {
-            return res.status(401).json({ error: 'Authentication required' });
-        }
-
-        const db = await getDb();
-        const user = await db.get('SELECT id, email, role FROM users WHERE id = ?', userId);
-
-        if (!user) {
-            return res.status(401).json({ error: 'User not found' });
-        }
-
-        if (user.role !== 'ADMIN') {
-            return res.status(403).json({ error: 'Admin access required' });
-        }
-
-        // Attach full user info to request for convenience
-        req.adminUser = user;
-        next();
-
-    } catch (error) {
-        console.error('[Admin Middleware] Error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+    if (!token) {
+        return res.status(401).json({ error: 'No token provided' });
     }
-}
+
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) {
+            return res.status(403).json({ error: 'Invalid or expired token' });
+        }
+        req.user = user;
+        next();
+    });
+};
+
+// Check if authenticated user is admin
+const requireAdmin = async (req, res, next) => {
+    // First authenticate the token
+    authenticateToken(req, res, async () => {
+        try {
+            if (!req.user) {
+                return res.status(401).json({ error: 'Authentication required' });
+            }
+
+            const { userId } = req.user;
+            const db = await getDb();
+
+            const user = await db.get('SELECT role FROM users WHERE id = ?', userId);
+
+            if (!user || user.role !== 'ADMIN') {
+                console.log(`[Admin Middleware] Access denied for user ${userId}`);
+                return res.status(403).json({ error: 'Admin access required' });
+            }
+
+            next();
+        } catch (error) {
+            console.error('[Admin Middleware] Error:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+};
+
+export { requireAdmin };
 
 /**
  * Helper function to check if a user is admin (for queries)

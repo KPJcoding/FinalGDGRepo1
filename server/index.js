@@ -1565,7 +1565,272 @@ app.delete('/admin/questions/:id/delete', authenticateToken, requireAdmin, async
 });
 
 
+// -------------------------------------------------------------
+// GOODIES MARKETPLACE APIs
+// -------------------------------------------------------------
 
+// Get all active goodies (public)
+app.get('/api/goodies', async (req, res) => {
+    try {
+        const db = await getDb();
+        const goodies = await db.all(`
+            SELECT id, name, description, image_url, cost, stock, category, created_at
+            FROM goodies
+            WHERE is_active = 1
+            ORDER BY category, cost ASC
+        `);
+        res.json(goodies);
+    } catch (error) {
+        console.error('[Goodies] Error fetching goodies:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Get single goodie details
+app.get('/api/goodies/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const db = await getDb();
+        const goodie = await db.get(`
+            SELECT id, name, description, image_url, cost, stock, category, created_at
+            FROM goodies
+            WHERE id = ? AND is_active = 1
+        `, id);
+
+        if (!goodie) {
+            return res.status(404).json({ error: 'Goodie not found' });
+        }
+
+        res.json(goodie);
+    } catch (error) {
+        console.error('[Goodies] Error fetching goodie:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Purchase a goodie
+app.post('/api/goodies/:id/purchase', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { userId } = req.user;
+        const db = await getDb();
+
+        // Get goodie details
+        const goodie = await db.get('SELECT * FROM goodies WHERE id = ? AND is_active = 1', id);
+        if (!goodie) {
+            return res.status(404).json({ error: 'Goodie not found' });
+        }
+
+        // Check stock
+        if (goodie.stock === 0) {
+            return res.status(400).json({ error: 'Out of stock' });
+        }
+
+        // Get user credits
+        const user = await db.get('SELECT credits FROM users WHERE id = ?', userId);
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Check if user has enough credits
+        if (user.credits < goodie.cost) {
+            return res.status(400).json({ error: 'Insufficient credits' });
+        }
+
+        // Execute purchase in transaction
+        await db.exec('BEGIN TRANSACTION');
+        try {
+            // Deduct credits
+            await db.run('UPDATE users SET credits = credits - ? WHERE id = ?', goodie.cost, userId);
+
+            // Record purchase
+            await db.run(
+                'INSERT INTO purchases (user_id, goodie_id, cost_paid, status) VALUES (?, ?, ?, ?)',
+                userId, goodie.id, goodie.cost, 'completed'
+            );
+
+            // Record credit transaction
+            await db.run(
+                'INSERT INTO credit_transactions (user_id, amount, type, description) VALUES (?, ?, ?, ?)',
+                userId, -goodie.cost, 'SPEND', `Purchased: ${goodie.name}`
+            );
+
+            // Update stock (if not unlimited)
+            if (goodie.stock !== -1) {
+                await db.run('UPDATE goodies SET stock = stock - 1 WHERE id = ?', goodie.id);
+            }
+
+            await db.exec('COMMIT');
+
+            // Get updated credits
+            const updatedUser = await db.get('SELECT credits FROM users WHERE id = ?', userId);
+
+            console.log(`[Goodies] User ${userId} purchased ${goodie.name} for ${goodie.cost} credits`);
+
+            res.json({
+                message: 'Purchase successful',
+                goodie: { id: goodie.id, name: goodie.name },
+                credits: updatedUser.credits
+            });
+        } catch (error) {
+            await db.exec('ROLLBACK');
+            throw error;
+        }
+    } catch (error) {
+        console.error('[Goodies] Error purchasing goodie:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Get user's purchase history
+app.get('/api/users/purchases', authenticateToken, async (req, res) => {
+    try {
+        const { userId } = req.user;
+        const db = await getDb();
+
+        const purchases = await db.all(`
+            SELECT p.*, g.name as goodie_name, g.description, g.image_url, g.category
+            FROM purchases p
+            JOIN goodies g ON p.goodie_id = g.id
+            WHERE p.user_id = ?
+            ORDER BY p.created_at DESC
+        `, userId);
+
+        res.json(purchases);
+    } catch (error) {
+        console.error('[Goodies] Error fetching purchases:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// -------------------------------------------------------------
+// ADMIN GOODIES MANAGEMENT
+// -------------------------------------------------------------
+
+// Get all goodies (including inactive) - Admin only
+app.get('/admin/goodies', requireAdmin, async (req, res) => {
+    try {
+        const db = await getDb();
+        const goodies = await db.all(`
+            SELECT g.*, 
+                   (SELECT COUNT(*) FROM purchases WHERE goodie_id = g.id) as total_purchases,
+                   (SELECT SUM(cost_paid) FROM purchases WHERE goodie_id = g.id) as total_revenue
+            FROM goodies g
+            ORDER BY g.created_at DESC
+        `);
+        res.json(goodies);
+    } catch (error) {
+        console.error('[Admin] Error fetching goodies:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Create new goodie - Admin only
+app.post('/admin/goodies', requireAdmin, async (req, res) => {
+    try {
+        const { name, description, image_url, cost, stock, category } = req.body;
+
+        if (!name || !description || !cost) {
+            return res.status(400).json({ error: 'Name, description, and cost are required' });
+        }
+
+        const db = await getDb();
+        const result = await db.run(`
+            INSERT INTO goodies (name, description, image_url, cost, stock, category, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, 1)
+        `, name, description, image_url || '/placeholder.svg', cost, stock || -1, category || 'Other');
+
+        const newGoodie = await db.get('SELECT * FROM goodies WHERE id = ?', result.lastID);
+
+        console.log(`[Admin] Created new goodie: ${name}`);
+        res.json(newGoodie);
+    } catch (error) {
+        console.error('[Admin] Error creating goodie:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Update goodie - Admin only
+app.put('/admin/goodies/:id', requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name, description, image_url, cost, stock, category, is_active } = req.body;
+
+        const db = await getDb();
+        const goodie = await db.get('SELECT * FROM goodies WHERE id = ?', id);
+        if (!goodie) {
+            return res.status(404).json({ error: 'Goodie not found' });
+        }
+
+        await db.run(`
+            UPDATE goodies
+            SET name = ?, description = ?, image_url = ?, cost = ?, stock = ?, category = ?, is_active = ?
+            WHERE id = ?
+        `,
+            name || goodie.name,
+            description || goodie.description,
+            image_url || goodie.image_url,
+            cost !== undefined ? cost : goodie.cost,
+            stock !== undefined ? stock : goodie.stock,
+            category || goodie.category,
+            is_active !== undefined ? is_active : goodie.is_active,
+            id
+        );
+
+        const updatedGoodie = await db.get('SELECT * FROM goodies WHERE id = ?', id);
+        console.log(`[Admin] Updated goodie: ${updatedGoodie.name}`);
+        res.json(updatedGoodie);
+    } catch (error) {
+        console.error('[Admin] Error updating goodie:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Toggle goodie active status - Admin only
+app.patch('/admin/goodies/:id/toggle', requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const db = await getDb();
+
+        const goodie = await db.get('SELECT * FROM goodies WHERE id = ?', id);
+        if (!goodie) {
+            return res.status(404).json({ error: 'Goodie not found' });
+        }
+
+        const newStatus = goodie.is_active === 1 ? 0 : 1;
+        await db.run('UPDATE goodies SET is_active = ? WHERE id = ?', newStatus, id);
+
+        console.log(`[Admin] Toggled goodie ${goodie.name} to ${newStatus === 1 ? 'active' : 'inactive'}`);
+        res.json({ is_active: newStatus });
+    } catch (error) {
+        console.error('[Admin] Error toggling goodie:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Delete goodie - Admin only
+app.delete('/admin/goodies/:id', requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const db = await getDb();
+
+        const goodie = await db.get('SELECT * FROM goodies WHERE id = ?', id);
+        if (!goodie) {
+            return res.status(404).json({ error: 'Goodie not found' });
+        }
+
+        // Soft delete by setting is_active to 0
+        await db.run('UPDATE goodies SET is_active = 0 WHERE id = ?', id);
+
+        console.log(`[Admin] Deleted goodie: ${goodie.name}`);
+        res.json({ message: 'Goodie deleted successfully' });
+    } catch (error) {
+        console.error('[Admin] Error deleting goodie:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Server startup and initialization
 // Start Server Logic
 (async () => {
     // Only attempt to verify connection if required params are present (handled inside verifyConnection)

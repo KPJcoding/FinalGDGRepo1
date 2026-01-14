@@ -2,7 +2,7 @@ import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { motion } from "framer-motion";
-import { Shield, CheckCircle, XCircle, Clock, Users, FileText, TrendingUp, Loader2, PlayCircle, Trophy, Trash2, AlertCircle } from "lucide-react";
+import { Shield, CheckCircle, XCircle, Clock, Users, FileText, TrendingUp, Loader2, PlayCircle, Trophy, Trash2, AlertCircle, Gift, Plus, Edit, Package, Coins } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -59,6 +59,20 @@ interface Issue {
     admin_notes: string | null;
 }
 
+interface Goodie {
+    id: number;
+    name: string;
+    description: string;
+    image_url: string;
+    cost: number;
+    stock: number;
+    category: string;
+    is_active: number;
+    created_at: string;
+    total_purchases?: number;
+    total_revenue?: number;
+}
+
 const TIER_COLORS = {
     Bronze: "bg-sol-verified/10 text-sol-verified border-sol-verified/20",
     Silver: "bg-blue-500/10 text-blue-600 border-blue-500/20",
@@ -80,6 +94,19 @@ export default function AdminDashboard() {
     const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
     const [statusUpdate, setStatusUpdate] = useState<{ status: string; notes: string }>({ status: '', notes: '' });
 
+    // Goodies Management State
+    const [goodies, setGoodies] = useState<Goodie[]>([]);
+    const [showGoodieDialog, setShowGoodieDialog] = useState(false);
+    const [editingGoodie, setEditingGoodie] = useState<Goodie | null>(null);
+    const [goodieForm, setGoodieForm] = useState({
+        name: '',
+        description: '',
+        image_url: '/placeholder.svg',
+        cost: 0,
+        stock: -1,
+        category: 'Other'
+    });
+
     useEffect(() => {
         checkAdminAccess();
         fetchStats();
@@ -88,6 +115,7 @@ export default function AdminDashboard() {
 
         fetchVerifiedAnswers();
         fetchIssues();
+        fetchGoodies();
     }, []);
 
     const checkAdminAccess = async () => {
@@ -368,6 +396,138 @@ export default function AdminDashboard() {
             console.error('Error deleting question:', error);
             showToast('Network error', 'error');
         }
+    };
+
+    // Goodies Management Functions
+    const fetchGoodies = async () => {
+        try {
+            const token = localStorage.getItem('auth_token');
+            const response = await fetch(`${API_URL}/admin/goodies`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                setGoodies(data);
+            }
+        } catch (error) {
+            console.error('Failed to fetch goodies:', error);
+        }
+    };
+
+    const handleCreateGoodie = async () => {
+        try {
+            const token = localStorage.getItem('auth_token');
+            const response = await fetch(`${API_URL}/admin/goodies`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(goodieForm)
+            });
+
+            if (response.ok) {
+                showToast('Goodie created successfully!', 'success');
+                fetchGoodies();
+                setShowGoodieDialog(false);
+                resetGoodieForm();
+            } else {
+                showToast('Failed to create goodie', 'error');
+            }
+        } catch (error) {
+            showToast('Network error', 'error');
+        }
+    };
+
+    const handleUpdateGoodie = async () => {
+        if (!editingGoodie) return;
+        try {
+            const token = localStorage.getItem('auth_token');
+            const response = await fetch(`${API_URL}/admin/goodies/${editingGoodie.id}`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(goodieForm)
+            });
+
+            if (response.ok) {
+                showToast('Goodie updated successfully!', 'success');
+                fetchGoodies();
+                setShowGoodieDialog(false);
+                setEditingGoodie(null);
+                resetGoodieForm();
+            } else {
+                showToast('Failed to update goodie', 'error');
+            }
+        } catch (error) {
+            showToast('Network error', 'error');
+        }
+    };
+
+    const handleDeleteGoodie = async (id: number) => {
+        if (!confirm('Delete this goodie? It will be hidden but purchase history preserved.')) return;
+        try {
+            const token = localStorage.getItem('auth_token');
+            const response = await fetch(`${API_URL}/admin/goodies/${id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.ok) {
+                showToast('Goodie deleted', 'success');
+                fetchGoodies();
+            } else {
+                showToast('Failed to delete goodie', 'error');
+            }
+        } catch (error) {
+            showToast('Network error', 'error');
+        }
+    };
+
+    const handleToggleActive = async (id: number) => {
+        try {
+            const token = localStorage.getItem('auth_token');
+            const response = await fetch(`${API_URL}/admin/goodies/${id}/toggle`, {
+                method: 'PATCH',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.ok) {
+                showToast('Status toggled', 'success');
+                fetchGoodies();
+            } else {
+                showToast('Failed to toggle status', 'error');
+            }
+        } catch (error) {
+            showToast('Network error', 'error');
+        }
+    };
+
+    const openEditDialog = (goodie: Goodie) => {
+        setEditingGoodie(goodie);
+        setGoodieForm({
+            name: goodie.name,
+            description: goodie.description,
+            image_url: goodie.image_url,
+            cost: goodie.cost,
+            stock: goodie.stock,
+            category: goodie.category
+        });
+        setShowGoodieDialog(true);
+    };
+
+    const resetGoodieForm = () => {
+        setGoodieForm({
+            name: '',
+            description: '',
+            image_url: '/placeholder.svg',
+            cost: 0,
+            stock: -1,
+            category: 'Other'
+        });
+        setEditingGoodie(null);
     };
 
     const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -759,8 +919,221 @@ export default function AdminDashboard() {
                             </div>
                         </div>
                     </div>
+
+                    {/* Goodies Management Section */}
+                    <div className="mt-12">
+                        <div className="flex items-center justify-between mb-6">
+                            <div className="flex items-center gap-2">
+                                <Gift className="w-5 h-5 text-sol-cyan" />
+                                <h2 className="text-xl font-bold font-heading">Goodies Management</h2>
+                                <Badge variant="outline">{goodies.length} total</Badge>
+                            </div>
+                            <Button
+                                onClick={() => {
+                                    resetGoodieForm();
+                                    setShowGoodieDialog(true);
+                                }}
+                                className="gap-2"
+                            >
+                                <Plus className="w-4 h-4" />
+                                Add New Goodie
+                            </Button>
+                        </div>
+
+                        <div className="bg-card border border-border rounded-xl overflow-hidden">
+                            <div className="overflow-x-auto">
+                                <table className="w-full">
+                                    <thead className="bg-muted">
+                                        <tr>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Name</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Category</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Cost</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Stock</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Purchases</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Revenue</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
+                                            <th className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-border">
+                                        {goodies.map((goodie) => (
+                                            <tr key={goodie.id} className="hover:bg-muted/50 transition-colors">
+                                                <td className="px-6 py-4">
+                                                    <div className="flex items-center gap-3">
+                                                        <img src={goodie.image_url} alt={goodie.name} className="w-10 h-10 rounded-lg object-cover" />
+                                                        <div>
+                                                            <div className="font-medium">{goodie.name}</div>
+                                                            <div className="text-sm text-muted-foreground truncate max-w-[200px]">{goodie.description}</div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 text-sm">
+                                                    <Badge variant="outline">{goodie.category}</Badge>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <div className="flex items-center gap-1 text-yellow-600 font-semibold">
+                                                        <Coins className="w-4 h-4" />
+                                                        {goodie.cost}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 text-sm">
+                                                    {goodie.stock === -1 ? (
+                                                        <Badge className="bg-green-500/10 text-green-600">Unlimited</Badge>
+                                                    ) : (
+                                                        <span className={goodie.stock === 0 ? 'text-red-500 font-semibold' : ''}>{goodie.stock}</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-6 py-4 text-sm">{goodie.total_purchases || 0}</td>
+                                                <td className="px-6 py-4">
+                                                    <div className="flex items-center gap-1 text-sm">
+                                                        <Coins className="w-3 h-3 text-yellow-500" />
+                                                        {goodie.total_revenue || 0}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <Badge
+                                                        variant={goodie.is_active === 1 ? 'default' : 'secondary'}
+                                                        className={goodie.is_active === 1 ? 'bg-green-500' : ''}
+                                                    >
+                                                        {goodie.is_active === 1 ? 'Active' : 'Inactive'}
+                                                    </Badge>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <div className="flex items-center justify-end gap-2">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={() => handleToggleActive(goodie.id)}
+                                                            title={goodie.is_active === 1 ? 'Deactivate' : 'Activate'}
+                                                        >
+                                                            <Package className="w-4 h-4" />
+                                                        </Button>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={() => openEditDialog(goodie)}
+                                                        >
+                                                            <Edit className="w-4 h-4" />
+                                                        </Button>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={() => handleDeleteGoodie(goodie.id)}
+                                                            className="text-red-500 hover:text-red-700"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </Button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
+
+
+            {/* Goodie Create/Edit Dialog */}
+            {showGoodieDialog && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="bg-card border border-border rounded-xl shadow-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+                    >
+                        <div className="p-6 border-b border-border flex justify-between items-center">
+                            <h2 className="text-xl font-bold">{editingGoodie ? 'Edit Goodie' : 'Create New Goodie'}</h2>
+                            <Button variant="ghost" size="icon" onClick={() => { setShowGoodieDialog(false); resetGoodieForm(); }}>
+                                <XCircle className="w-6 h-6" />
+                            </Button>
+                        </div>
+
+                        <div className="p-6 space-y-4">
+                            <div>
+                                <label className="text-sm font-medium mb-2 block">Name *</label>
+                                <input
+                                    type="text"
+                                    value={goodieForm.name}
+                                    onChange={(e) => setGoodieForm({ ...goodieForm, name: e.target.value })}
+                                    className="w-full h-10 rounded-md border border-input bg-background px-3 py-2"
+                                    placeholder="Sol-1 T-Shirt"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="text-sm font-medium mb-2 block">Description *</label>
+                                <textarea
+                                    value={goodieForm.description}
+                                    onChange={(e) => setGoodieForm({ ...goodieForm, description: e.target.value })}
+                                    className="w-full min-h-[80px] rounded-md border border-input bg-background px-3 py-2"
+                                    placeholder="Premium cotton t-shirt with Sol-1 branding"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="text-sm font-medium mb-2 block">Image URL</label>
+                                <input
+                                    type="text"
+                                    value={goodieForm.image_url}
+                                    onChange={(e) => setGoodieForm({ ...goodieForm, image_url: e.target.value })}
+                                    className="w-full h-10 rounded-md border border-input bg-background px-3 py-2"
+                                    placeholder="/placeholder.svg"
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-sm font-medium mb-2 block">Cost (Credits) *</label>
+                                    <input
+                                        type="number"
+                                        value={goodieForm.cost}
+                                        onChange={(e) => setGoodieForm({ ...goodieForm, cost: parseInt(e.target.value) || 0 })}
+                                        className="w-full h-10 rounded-md border border-input bg-background px-3 py-2"
+                                        min="0"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="text-sm font-medium mb-2 block">Stock (-1 = Unlimited)</label>
+                                    <input
+                                        type="number"
+                                        value={goodieForm.stock}
+                                        onChange={(e) => setGoodieForm({ ...goodieForm, stock: parseInt(e.target.value) || -1 })}
+                                        className="w-full h-10 rounded-md border border-input bg-background px-3 py-2"
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="text-sm font-medium mb-2 block">Category</label>
+                                <select
+                                    value={goodieForm.category}
+                                    onChange={(e) => setGoodieForm({ ...goodieForm, category: e.target.value })}
+                                    className="w-full h-10 rounded-md border border-input bg-background px-3 py-2"
+                                >
+                                    <option value="Apparel">Apparel</option>
+                                    <option value="Stationery">Stationery</option>
+                                    <option value="Digital">Digital</option>
+                                    <option value="Accessories">Accessories</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="p-6 border-t border-border flex justify-end gap-3">
+                            <Button variant="outline" onClick={() => { setShowGoodieDialog(false); resetGoodieForm(); }}>
+                                Cancel
+                            </Button>
+                            <Button onClick={editingGoodie ? handleUpdateGoodie : handleCreateGoodie}>
+                                {editingGoodie ? 'Update' : 'Create'} Goodie
+                            </Button>
+                        </div>
+                    </motion.div>
+                </div>
+            )}
 
 
             {/* Issue Management Modal */}

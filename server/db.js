@@ -99,6 +99,33 @@ export async function getDb() {
     CREATE INDEX IF NOT EXISTS idx_question_tags_question ON question_tags(question_id);
     CREATE INDEX IF NOT EXISTS idx_question_tags_tag ON question_tags(tag_name);
     CREATE INDEX IF NOT EXISTS idx_votes_user_target ON votes(user_id, target_id, target_type);
+
+    -- Goodies Marketplace Tables
+    CREATE TABLE IF NOT EXISTS goodies (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      image_url TEXT,
+      cost INTEGER NOT NULL,
+      stock INTEGER DEFAULT -1,
+      is_active INTEGER DEFAULT 1,
+      category TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS purchases (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      goodie_id INTEGER NOT NULL,
+      cost_paid INTEGER NOT NULL,
+      status TEXT DEFAULT 'completed',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (goodie_id) REFERENCES goodies(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchases_user ON purchases(user_id);
+    CREATE INDEX IF NOT EXISTS idx_purchases_goodie ON purchases(goodie_id);
   `);
 
   // Migration: Check for columns
@@ -188,6 +215,24 @@ export async function getDb() {
       END
       WHERE difficulty_tier = 'Bronze' AND difficulty IN ('Easy', 'Medium', 'Hard')
     `);
+
+    // Seed initial goodies data if table is empty
+    const goodiesCount = await dbInstance.get('SELECT COUNT(*) as count FROM goodies');
+    if (goodiesCount.count === 0) {
+      console.log("[DB] Seeding initial goodies data...");
+      await dbInstance.exec(`
+        INSERT INTO goodies (name, description, image_url, cost, stock, category) VALUES
+        ('Sol-1 Sticker Pack', 'Set of 5 high-quality vinyl stickers with Sol-1 logo and designs', '/placeholder.svg', 50, 100, 'Stationery'),
+        ('Sol-1 T-Shirt', 'Premium cotton t-shirt with Sol-1 branding. Available in multiple sizes.', '/placeholder.svg', 300, 50, 'Apparel'),
+        ('Sol-1 Hoodie', 'Comfortable hoodie with embroidered Sol-1 logo. Perfect for campus life.', '/placeholder.svg', 500, 30, 'Apparel'),
+        ('Sol-1 Notebook', 'A5 hardcover notebook with 200 pages, perfect for notes and sketches', '/placeholder.svg', 100, 80, 'Stationery'),
+        ('Sol-1 Water Bottle', 'Stainless steel water bottle with Sol-1 design, keeps drinks hot/cold', '/placeholder.svg', 200, 60, 'Accessories'),
+        ('Sol-1 Pen Set', 'Premium pen set (3 pens) with Sol-1 branding', '/placeholder.svg', 75, 120, 'Stationery'),
+        ('Digital Wallpaper Pack', 'Exclusive Sol-1 themed wallpapers for desktop and mobile', '/placeholder.svg', 25, -1, 'Digital'),
+        ('Sol-1 Tote Bag', 'Eco-friendly canvas tote bag with Sol-1 print', '/placeholder.svg', 150, 70, 'Accessories')
+      `);
+      console.log("[DB] Seeded 8 initial goodies");
+    }
 
   } catch (err) {
     console.warn("[DB] Migration check failed:", err.message);
