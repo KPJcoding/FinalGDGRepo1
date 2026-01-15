@@ -43,5 +43,8 @@ export const api = {
             ? `/questions/${targetId}/vote`
             : `/answers/${targetId}/vote`;
         return request('POST', endpoint, { vote_type: voteType });
-    }
+    },
+
+    challengeAnswer: (answerId: string | number, content: string) =>
+        request('POST', `/answers/${answerId}/challenge`, { content })
 };

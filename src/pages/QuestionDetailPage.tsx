@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
 import { useParams, useNavigate } from "react-router-dom";
-import { ThumbsUp, ThumbsDown, User, Star, CheckCircle, Loader2, ShieldCheck, FileText } from "lucide-react";
+import { ThumbsUp, ThumbsDown, User, Star, CheckCircle, Loader2, ShieldCheck, FileText, Shield } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { TierBadge } from "@/components/qa/TierBadge";
 import { Textarea } from "@/components/ui/textarea";
@@ -17,6 +17,9 @@ export default function QuestionDetailPage() {
     const [newAnswer, setNewAnswer] = useState("");
     const [submitting, setSubmitting] = useState(false);
     const [currentUser, setCurrentUser] = useState<any>(null);
+    const [challengeData, setChallengeData] = useState<{ open: boolean; answerId: string | number | null }>({ open: false, answerId: null });
+    const [challengeContent, setChallengeContent] = useState("");
+    const [submittingChallenge, setSubmittingChallenge] = useState(false);
 
     const { toast } = useToast();
     const navigate = useNavigate();
@@ -83,6 +86,21 @@ export default function QuestionDetailPage() {
             loadData(); // Reload to show updated votes and colors
         } catch (e: any) {
             toast({ title: "Vote failed", description: e.message || "Unknown error", variant: "destructive" });
+        }
+    }
+
+    async function handleSubmitChallenge() {
+        if (!challengeData.answerId || !challengeContent) return;
+        setSubmittingChallenge(true);
+        try {
+            await api.challengeAnswer(challengeData.answerId, challengeContent);
+            toast({ title: "Challenge submitted!", description: "Admins will review your answer." });
+            setChallengeData({ open: false, answerId: null });
+            setChallengeContent("");
+        } catch (e: any) {
+            toast({ title: "Error", description: e.message, variant: "destructive" });
+        } finally {
+            setSubmittingChallenge(false);
         }
     }
 
@@ -201,14 +219,66 @@ export default function QuestionDetailPage() {
                                             <ShieldCheck className="w-4 h-4 mr-2" /> Verify (Maintainer)
                                         </Button>
                                     )}
+
+                                    {/* Challenge Button (500+ credits) */}
+                                    {currentUser && currentUser.credits >= 500 && ans.is_maintainer_verified === 1 && (
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="text-orange-600 border-orange-200 hover:bg-orange-50"
+                                            onClick={() => setChallengeData({ answerId: ans.id, open: true })}
+                                        >
+                                            <Shield className="w-4 h-4 mr-2" /> Challenge
+                                        </Button>
+                                    )}
                                 </div>
                             </div>
                         </div>
                     ))}
                 </div>
 
+                {/* Challenge Dialog */}
+                {challengeData.open && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+                        <div className="bg-background border rounded-xl p-6 max-w-lg w-full shadow-lg">
+                            <h3 className="text-xl font-bold mb-2">Challenge Verified Answer</h3>
+                            <div className="bg-orange-50 text-orange-800 text-sm p-3 rounded-lg mb-4 border border-orange-200">
+                                <strong>Warning:</strong> Creating a challenge costs nothing, but abusing this feature may result in a ban.
+                                Your answer will replace the current one if approved.
+                            </div>
+
+                            <Textarea
+                                value={challengeContent}
+                                onChange={(e) => setChallengeContent(e.target.value)}
+                                placeholder="Write your better answer here..."
+                                className="min-h-[200px] mb-2"
+                            />
+
+                            <div className="text-sm mb-4 text-muted-foreground flex justify-between">
+                                <span>{challengeContent.length} chars</span>
+                                <span>Min 50 chars</span>
+                            </div>
+
+                            <div className="flex justify-end gap-3">
+                                <Button variant="ghost" onClick={() => setChallengeData({ open: false, answerId: null })}>
+                                    Cancel
+                                </Button>
+                                <Button
+                                    onClick={handleSubmitChallenge}
+                                    disabled={submittingChallenge || challengeContent.length < 50}
+                                    className="bg-orange-600 hover:bg-orange-700 text-white"
+                                >
+                                    {submittingChallenge ? <Loader2 className="animate-spin mr-2" /> : null}
+                                    Submit Challenge
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+
                 {/* Post Answer */}
-                <div className="bg-card border p-6 rounded-xl">
+                < div className="bg-card border p-6 rounded-xl" >
                     <div className="flex items-center gap-2 mb-4">
                         <FileText className="w-5 h-5 text-sol-cyan" />
                         <h3 className="text-xl font-semibold">Write Your Answer</h3>
@@ -228,11 +298,13 @@ export default function QuestionDetailPage() {
                         <span className="text-muted-foreground"> • Minimum 100 characters recommended</span>
                     </div>
 
-                    {newAnswer.length > 0 && newAnswer.length < 100 && (
-                        <div className="bg-orange-50 border border-orange-200 text-orange-800 px-4 py-3 rounded-lg mb-4 text-sm">
-                            ⚠️ Please write at least 100 characters for a detailed answer ({100 - newAnswer.length} more needed)
-                        </div>
-                    )}
+                    {
+                        newAnswer.length > 0 && newAnswer.length < 100 && (
+                            <div className="bg-orange-50 border border-orange-200 text-orange-800 px-4 py-3 rounded-lg mb-4 text-sm">
+                                ⚠️ Please write at least 100 characters for a detailed answer ({100 - newAnswer.length} more needed)
+                            </div>
+                        )
+                    }
 
                     <Button
                         onClick={handlePostAnswer}
@@ -242,8 +314,8 @@ export default function QuestionDetailPage() {
                         {submitting ? <Loader2 className="animate-spin mr-2" /> : null}
                         Submit Answer
                     </Button>
-                </div>
-            </div>
-        </Layout>
+                </div >
+            </div >
+        </Layout >
     );
 }

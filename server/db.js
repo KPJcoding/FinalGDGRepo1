@@ -132,8 +132,9 @@ export async function getDb() {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         answer_id INTEGER NOT NULL,
         challenger_id INTEGER NOT NULL,
+        original_answer_id INTEGER, -- ID of the archived original answer (populated on approval)
         challenge_content TEXT NOT NULL,
-        status TEXT DEFAULT 'pending',
+        status TEXT DEFAULT 'pending', -- 'pending', 'approved', 'rejected'
         admin_notes TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         reviewed_at DATETIME,
@@ -235,6 +236,13 @@ export async function getDb() {
       END
       WHERE difficulty_tier = 'Bronze' AND difficulty IN ('Easy', 'Medium', 'Hard')
     `);
+
+    // Migration: Check for answer_challenges columns
+    const challengeColumns = await dbInstance.all("PRAGMA table_info(answer_challenges)");
+    if (!challengeColumns.some(col => col.name === 'original_answer_id')) {
+      console.log("[DB] Migrating: Adding 'original_answer_id' column to 'answer_challenges'");
+      await dbInstance.exec("ALTER TABLE answer_challenges ADD COLUMN original_answer_id INTEGER");
+    }
 
     // Seed initial goodies data if table is empty
     const goodiesCount = await dbInstance.get('SELECT COUNT(*) as count FROM goodies');

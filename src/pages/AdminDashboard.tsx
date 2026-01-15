@@ -59,6 +59,20 @@ interface Issue {
     admin_notes: string | null;
 }
 
+interface Challenge {
+    id: number;
+    answer_id: number;
+    challenger_id: number;
+    challenge_content: string;
+    original_answer_content: string;
+    status: 'pending' | 'approved' | 'rejected';
+    created_at: string;
+    question_title: string;
+    challenger_name: string;
+    challenger_email: string;
+    admin_notes?: string;
+}
+
 interface Goodie {
     id: number;
     name: string;
@@ -107,6 +121,11 @@ export default function AdminDashboard() {
         category: 'Other'
     });
 
+    // Challenge Management State
+    const [challenges, setChallenges] = useState<Challenge[]>([]);
+    const [rejectDialog, setRejectDialog] = useState<{ open: boolean; challengeId: number | null }>({ open: false, challengeId: null });
+    const [rejectReason, setRejectReason] = useState("");
+
     useEffect(() => {
         checkAdminAccess();
         fetchStats();
@@ -116,6 +135,7 @@ export default function AdminDashboard() {
         fetchVerifiedAnswers();
         fetchIssues();
         fetchGoodies();
+        fetchChallenges();
     }, []);
 
     const checkAdminAccess = async () => {
@@ -404,6 +424,74 @@ export default function AdminDashboard() {
         }
     };
 
+    const fetchChallenges = async () => {
+        try {
+            const token = localStorage.getItem('auth_token');
+            const response = await fetch(`${API_URL}/admin/challenges`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                setChallenges(data);
+            }
+        } catch (error) {
+            console.error('Failed to fetch challenges:', error);
+        }
+    };
+
+    const handleApproveChallenge = async (id: number) => {
+        if (!confirm("Approve this challenge? This will replace the original answer content.")) return;
+        setProcessingId(id);
+        try {
+            const token = localStorage.getItem('auth_token');
+            const response = await fetch(`${API_URL}/admin/challenges/${id}/approve`, {
+                method: 'PUT',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.ok) {
+                showToast('Challenge approved and answer updated!', 'success');
+                fetchChallenges();
+            } else {
+                const data = await response.json();
+                showToast(data.error || 'Failed to approve challenge', 'error');
+            }
+        } catch (error) {
+            showToast('Network error', 'error');
+        } finally {
+            setProcessingId(null);
+        }
+    };
+
+    const handleRejectChallenge = async () => {
+        if (!rejectDialog.challengeId) return;
+        setProcessingId(rejectDialog.challengeId);
+        try {
+            const token = localStorage.getItem('auth_token');
+            const response = await fetch(`${API_URL}/admin/challenges/${rejectDialog.challengeId}/reject`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ admin_notes: rejectReason })
+            });
+
+            if (response.ok) {
+                showToast('Challenge rejected', 'info');
+                fetchChallenges();
+                setRejectDialog({ open: false, challengeId: null });
+                setRejectReason("");
+            } else {
+                showToast('Failed to reject challenge', 'error');
+            }
+        } catch (error) {
+            showToast('Network error', 'error');
+        } finally {
+            setProcessingId(null);
+        }
+    };
+
     // Goodies Management Functions
     const fetchGoodies = async () => {
         try {
@@ -619,6 +707,106 @@ export default function AdminDashboard() {
                 </div>
 
                 <div className="container mx-auto px-4 py-8">
+
+                    {/* Challenges Section */}
+                    <div className="mb-12">
+                        <div className="flex items-center gap-2 mb-6">
+                            <Shield className="w-5 h-5 text-orange-500" />
+                            <h2 className="text-xl font-bold font-heading">Answer Challenges</h2>
+                            <Badge variant="secondary">{challenges.filter(c => c.status === 'pending').length} pending</Badge>
+                        </div>
+
+                        {challenges.length === 0 ? (
+                            <div className="text-center py-8 bg-card border border-border rounded-xl border-dashed">
+                                <p className="text-muted-foreground">No challenges found.</p>
+                            </div>
+                        ) : (
+                            <div className="grid gap-6">
+                                {challenges.map((challenge) => (
+                                    <motion.div
+                                        key={challenge.id}
+                                        initial={{ opacity: 0, y: 20 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        className={`bg-card border rounded-xl p-6 shadow-sm ${challenge.status !== 'pending' ? 'opacity-75' : ''}`}
+                                    >
+                                        <div className="flex justify-between items-start mb-4">
+                                            <div>
+                                                <h3 className="font-semibold text-lg">{challenge.question_title}</h3>
+                                                <div className="flex gap-2 text-sm text-muted-foreground mt-1">
+                                                    <span>Challenger: {challenge.challenger_name}</span>
+                                                    <span>•</span>
+                                                    <span>{new Date(challenge.created_at).toLocaleDateString()}</span>
+                                                    <span>•</span>
+                                                    <Badge variant={challenge.status === 'pending' ? 'default' : 'secondary'}>
+                                                        {challenge.status}
+                                                    </Badge>
+                                                </div>
+                                            </div>
+                                            {challenge.status === 'pending' && (
+                                                <div className="flex gap-2">
+                                                    <Button
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                                                        onClick={() => setRejectDialog({ open: true, challengeId: challenge.id })}
+                                                    >
+                                                        Reject
+                                                    </Button>
+                                                    <Button
+                                                        size="sm"
+                                                        className="bg-green-600 hover:bg-green-700 text-white"
+                                                        onClick={() => handleApproveChallenge(challenge.id)}
+                                                        disabled={processingId === challenge.id}
+                                                    >
+                                                        {processingId === challenge.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
+                                                        Approve & Replace
+                                                    </Button>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="grid md:grid-cols-2 gap-4">
+                                            <div className="bg-red-500/5 border border-red-500/20 p-4 rounded-lg">
+                                                <h4 className="text-xs font-bold text-red-500 mb-2 uppercase tracking-wider">Original Answer</h4>
+                                                <p className="whitespace-pre-wrap text-sm">{challenge.original_answer_content}</p>
+                                            </div>
+                                            <div className="bg-green-500/5 border border-green-500/20 p-4 rounded-lg">
+                                                <h4 className="text-xs font-bold text-green-600 mb-2 uppercase tracking-wider">Challenger's Proposal</h4>
+                                                <p className="whitespace-pre-wrap text-sm">{challenge.challenge_content}</p>
+                                            </div>
+                                        </div>
+
+                                        {challenge.admin_notes && (
+                                            <div className="mt-4 text-sm text-muted-foreground bg-muted p-2 rounded">
+                                                Admin Notes: {challenge.admin_notes}
+                                            </div>
+                                        )}
+                                    </motion.div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Reject Dialog */}
+                        {rejectDialog.open && (
+                            <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+                                <div className="bg-background border rounded-xl p-6 max-w-lg w-full shadow-lg">
+                                    <h3 className="text-xl font-bold mb-4">Reject Challenge</h3>
+                                    <textarea
+                                        className="w-full min-h-[100px] p-3 rounded-md border bg-background mb-4"
+                                        placeholder="Reason for rejection (optional)..."
+                                        value={rejectReason}
+                                        onChange={(e) => setRejectReason(e.target.value)}
+                                    />
+                                    <div className="flex justify-end gap-3">
+                                        <Button variant="ghost" onClick={() => setRejectDialog({ open: false, challengeId: null })}>Cancel</Button>
+                                        <Button variant="destructive" onClick={handleRejectChallenge} disabled={!!processingId}>
+                                            {processingId ? <Loader2 className="animate-spin" /> : 'Confirm Reject'}
+                                        </Button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
 
                     {/* Reported Issues Section */}
                     <div className="mb-12">
