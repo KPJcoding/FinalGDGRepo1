@@ -1730,8 +1730,12 @@ app.post('/admin/goodies', requireAdmin, async (req, res) => {
     try {
         const { name, description, image_url, cost, stock, category } = req.body;
 
-        if (!name || !description || !cost) {
+        if (!name || !description || cost === undefined || cost === null) {
             return res.status(400).json({ error: 'Name, description, and cost are required' });
+        }
+
+        if (cost < 0) {
+            return res.status(400).json({ error: 'Cost cannot be negative' });
         }
 
         const db = await getDb();
@@ -1826,6 +1830,180 @@ app.delete('/admin/goodies/:id', requireAdmin, async (req, res) => {
         res.json({ message: 'Goodie deleted successfully' });
     } catch (error) {
         console.error('[Admin] Error deleting goodie:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// -------------------------------------------------------------
+// ANSWER CHALLENGE APIs
+// -------------------------------------------------------------
+
+// Submit challenge for a verified answer
+app.post('/api/answers/:id/challenge', authenticateToken, async (req, res) => {
+    try {
+        const { id: answerId } = req.params;
+        const { challenge_content } = req.body;
+        const { userId } = req.user;
+
+        if (!challenge_content || challenge_content.trim().length === 0) {
+            return res.status(400).json({ error: 'Challenge content is required' });
+        }
+
+        const db = await getDb();
+
+        // Get user credits
+        const user = await db.get('SELECT credits FROM users WHERE id = ?', userId);
+        if (!user || user.credits < 500) {
+            return res.status(403).json({ error: 'You need at least 500 credits to challenge an answer' });
+        }
+
+        // Verify answer exists and is verified
+        const answer = await db.get('SELECT id, is_verified FROM answers WHERE id = ?', answerId);
+        if (!answer) {
+            return res.status(404).json({ error: 'Answer not found' });
+        }
+        if (answer.is_verified !== 1) {
+            return res.status(400).json({ error: 'Only verified answers can be challenged' });
+        }
+
+        // Create challenge
+        const result = await db.run(`
+            INSERT INTO answer_challenges (answer_id, challenger_id, challenge_content, status)
+            VALUES (?, ?, ?, 'pending')
+        `, answerId, userId, challenge_content);
+
+        console.log(`[Challenge] User ${userId} challenged answer ${answerId}`);
+
+        res.json({
+            message: 'Challenge submitted successfully',
+            challengeId: result.lastID
+        });
+    } catch (error) {
+        console.error('[Challenge] Error submitting challenge:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Get all challenges (Admin only)
+app.get('/admin/challenges', requireAdmin, async (req, res) => {
+    try {
+        const db = await getDb();
+        const challenges = await db.all(`
+            SELECT 
+                ac.*,
+                a.content as original_content,
+                a.question_id,
+                q.question_text,
+                u.name as challenger_name,
+                u.email as challenger_email
+            FROM answer_challenges ac
+            JOIN answers a ON ac.answer_id = a.id
+            JOIN questions q ON a.question_id = q.id
+            JOIN users u ON ac.challenger_id = u.id
+            ORDER BY 
+                CASE ac.status 
+                    WHEN 'pending' THEN 1
+                    WHEN 'approved' THEN 2
+                    WHEN 'rejected' THEN 3
+                END,
+                ac.created_at DESC
+        `);
+        res.json(challenges);
+    } catch (error) {
+        console.error('[Admin] Error fetching challenges:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Approve challenge (Admin only)
+app.put('/admin/challenges/:id/approve', requireAdmin, async (req, res) => {
+    try {
+        const { id: challengeId } = req.params;
+        const { userId: adminId } = req.user;
+        const db = await getDb();
+
+        // Get challenge details
+        const challenge = await db.get(`
+            SELECT ac.*, a.user_id as original_author_id
+            FROM answer_challenges ac
+            JOIN answers a ON ac.answer_id = a.id
+            WHERE ac.id = ?
+        `, challengeId);
+
+        if (!challenge) {
+            return res.status(404).json({ error: 'Challenge not found' });
+        }
+
+        if (challenge.status !== 'pending') {
+            return res.status(400).json({ error: 'Challenge already reviewed' });
+        }
+
+        await db.exec('BEGIN TRANSACTION');
+        try {
+            // Update original answer with new content
+            await db.run(`
+                UPDATE answers 
+                SET content = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            `, challenge.challenge_content, challenge.answer_id);
+
+            // Mark challenge as approved
+            await db.run(`
+                UPDATE answer_challenges
+                SET status = 'approved', reviewed_at = CURRENT_TIMESTAMP, reviewed_by = ?
+                WHERE id = ?
+            `, adminId, challengeId);
+
+            // Award credits to challenger (150 credits)
+            await db.run('UPDATE users SET credits = credits + 150 WHERE id = ?', challenge.challenger_id);
+
+            // Record credit transaction
+            await db.run(`
+                INSERT INTO credit_transactions (user_id, amount, type, description)
+                VALUES (?, 150, 'REWARD', 'Challenge approved for answer')
+            `, challenge.challenger_id);
+
+            await db.exec('COMMIT');
+
+            console.log(`[Admin] Challenge ${challengeId} approved by admin ${adminId}`);
+            res.json({ message: 'Challenge approved successfully' });
+        } catch (error) {
+            await db.exec('ROLLBACK');
+            throw error;
+        }
+    } catch (error) {
+        console.error('[Admin] Error approving challenge:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Reject challenge (Admin only)
+app.put('/admin/challenges/:id/reject', requireAdmin, async (req, res) => {
+    try {
+        const { id: challengeId } = req.params;
+        const { admin_notes } = req.body;
+        const { userId: adminId } = req.user;
+        const db = await getDb();
+
+        const challenge = await db.get('SELECT * FROM answer_challenges WHERE id = ?', challengeId);
+        if (!challenge) {
+            return res.status(404).json({ error: 'Challenge not found' });
+        }
+
+        if (challenge.status !== 'pending') {
+            return res.status(400).json({ error: 'Challenge already reviewed' });
+        }
+
+        await db.run(`
+            UPDATE answer_challenges
+            SET status = 'rejected', admin_notes = ?, reviewed_at = CURRENT_TIMESTAMP, reviewed_by = ?
+            WHERE id = ?
+        `, admin_notes || '', adminId, challengeId);
+
+        console.log(`[Admin] Challenge ${challengeId} rejected by admin ${adminId}`);
+        res.json({ message: 'Challenge rejected successfully' });
+    } catch (error) {
+        console.error('[Admin] Error rejecting challenge:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });

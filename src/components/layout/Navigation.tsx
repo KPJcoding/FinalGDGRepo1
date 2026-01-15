@@ -27,6 +27,7 @@ export function Navigation() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { isAuthenticated, user, logout } = useAuth();
   const [userDetails, setUserDetails] = useState<any>(null);
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
   // Fetch full user details including tier
   useEffect(() => {
@@ -35,7 +36,7 @@ export function Navigation() {
     const fetchUserDetails = async () => {
       try {
         const token = localStorage.getItem('auth_token');
-        const res = await fetch('http://localhost:3000/users/me', {
+        const res = await fetch(`${API_URL}/users/me`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (res.ok) {
@@ -48,7 +49,7 @@ export function Navigation() {
     };
 
     fetchUserDetails();
-  }, [isAuthenticated]);
+  }, [isAuthenticated, user]); // Re-fetch when user changes (e.g., credits updated)
 
   const handleLogout = () => {
     logout();

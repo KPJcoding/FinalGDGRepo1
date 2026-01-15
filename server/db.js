@@ -126,7 +126,27 @@ export async function getDb() {
 
     CREATE INDEX IF NOT EXISTS idx_purchases_user ON purchases(user_id);
     CREATE INDEX IF NOT EXISTS idx_purchases_goodie ON purchases(goodie_id);
-  `);
+
+    -- Answer challenges table
+    CREATE TABLE IF NOT EXISTS answer_challenges (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        answer_id INTEGER NOT NULL,
+        challenger_id INTEGER NOT NULL,
+        challenge_content TEXT NOT NULL,
+        status TEXT DEFAULT 'pending',
+        admin_notes TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        reviewed_at DATETIME,
+        reviewed_by INTEGER,
+        FOREIGN KEY (answer_id) REFERENCES answers(id),
+        FOREIGN KEY (challenger_id) REFERENCES users(id),
+        FOREIGN KEY (reviewed_by) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_challenges_status ON answer_challenges(status);
+    CREATE INDEX IF NOT EXISTS idx_challenges_answer ON answer_challenges(answer_id);
+    CREATE INDEX IF NOT EXISTS idx_challenges_challenger ON answer_challenges(challenger_id);
+    `);
 
   // Migration: Check for columns
   try {
