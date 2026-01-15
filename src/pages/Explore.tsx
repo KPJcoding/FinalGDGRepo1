@@ -52,7 +52,6 @@ interface Answer {
   answer_downvotes: number;
   is_maintainer_verified: boolean;
   is_accepted: boolean;
-  is_verified?: number;
   verified_at?: string;
   user_vote: 'upvote' | 'downvote' | null;
 }
@@ -607,7 +606,7 @@ function QuestionDetail({ question, onBack, onVote, getTimeAgo, handleDeleteAnsw
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.1 }}
-            className={`bg-card border-2 rounded-xl p-6 relative ${answer.is_verified || answer.is_maintainer_verified
+            className={`bg-card border-2 rounded-xl p-6 relative ${answer.is_maintainer_verified
               ? 'border-green-500/50 bg-green-50/20'
               : 'border-border'
               }`}
@@ -626,7 +625,7 @@ function QuestionDetail({ question, onBack, onVote, getTimeAgo, handleDeleteAnsw
             )}
 
             {/* Verified Badge Header */}
-            {(answer.is_verified || answer.is_maintainer_verified) && (
+            {answer.is_maintainer_verified && (
               <div className="flex items-center gap-2 mb-4">
                 <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-blue-100 text-blue-700 text-xs font-medium">
                   <Shield className="w-3 h-3" />
@@ -676,7 +675,7 @@ function QuestionDetail({ question, onBack, onVote, getTimeAgo, handleDeleteAnsw
                   {answer.answer_downvotes || 0}
                 </Button>
                 {/* Challenge Button - Only for users with 500+ credits on verified answers */}
-                {currentUser && (currentUser.credits || 0) >= 500 && (answer.is_verified || answer.is_maintainer_verified) && (
+                {currentUser && (currentUser.credits || 0) >= 500 && answer.is_maintainer_verified && (
                   <Button
                     size="sm"
                     variant="outline"

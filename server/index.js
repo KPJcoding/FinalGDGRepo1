@@ -430,8 +430,8 @@ app.post('/questions', authenticateToken, async (req, res) => {
         // Insert with is_verified = 0. Difficulty is stored as PROPOSAL.
         // Credits are NOT awarded here anymore.
         const result = await db.run(
-            'INSERT INTO questions (title, content, difficulty, author_id, is_verified) VALUES (?, ?, ?, ?, 0)',
-            title, content, normalizedDiff, userId
+            'INSERT INTO questions (title, content, difficulty, difficulty_tier, author_id, is_verified) VALUES (?, ?, ?, ?, ?, 0)',
+            title, content, normalizedDiff, normalizedDiff, userId
         );
 
         console.log(`[QUESTION] New question submitted by user ${userId} - pending verification`);
@@ -459,7 +459,7 @@ app.get('/questions', async (req, res) => {
             questions = await db.all(`
                 SELECT q.*, u.name as author_name,
                 (SELECT SUM(value) FROM votes WHERE target_id = q.id AND target_type = 'question') as vote_count,
-                (SELECT COUNT(*) FROM answers WHERE question_id = q.id AND is_verified = 1) as answer_count
+                (SELECT COUNT(*) FROM answers WHERE question_id = q.id AND is_maintainer_verified = 1) as answer_count
                 FROM questions q 
                 JOIN users u ON q.author_id = u.id 
                 WHERE q.is_verified = 1 
@@ -471,7 +471,7 @@ app.get('/questions', async (req, res) => {
             questions = await db.all(`
                 SELECT q.*, u.name as author_name,
                 (SELECT SUM(value) FROM votes WHERE target_id = q.id AND target_type = 'question') as vote_count,
-                (SELECT COUNT(*) FROM answers WHERE question_id = q.id AND is_verified = 1) as answer_count
+                (SELECT COUNT(*) FROM answers WHERE question_id = q.id AND is_maintainer_verified = 1) as answer_count
                 FROM questions q 
                 JOIN users u ON q.author_id = u.id 
                 WHERE q.is_verified = 0 
@@ -1253,7 +1253,7 @@ app.post('/admin/answers/:id/verify', authenticateToken, requireAdmin, async (re
                 return res.status(404).json({ error: 'Answer not found' });
             }
 
-            if (answer.is_verified === 1) {
+            if (answer.is_maintainer_verified === 1) {
                 await db.exec('ROLLBACK');
                 return res.status(400).json({ error: 'Answer already verified' });
             }
@@ -1261,7 +1261,7 @@ app.post('/admin/answers/:id/verify', authenticateToken, requireAdmin, async (re
             // Update answer verification status
             await db.run(`
                 UPDATE answers 
-                SET is_verified = 1,
+                SET is_maintainer_verified = 1,
                     verified_by = ?,
                     verified_at = datetime('now')
                 WHERE id = ?

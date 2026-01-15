@@ -254,6 +254,14 @@ export async function getDb() {
       WHERE difficulty IN ('Easy', 'Medium', 'Hard')
     `);
 
+    // Migration: Sync answer verification status
+    // Ensure legacy verified answers are marked as maintainer verified
+    await dbInstance.exec(`
+      UPDATE answers 
+      SET is_maintainer_verified = 1 
+      WHERE is_verified = 1 AND is_maintainer_verified = 0
+    `);
+
     // Migration: Check for answer_challenges columns
     const challengeColumns = await dbInstance.all("PRAGMA table_info(answer_challenges)");
     if (!challengeColumns.some(col => col.name === 'original_answer_id')) {
