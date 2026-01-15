@@ -3,9 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Filter, CheckCircle, ThumbsUp, ThumbsDown, ArrowRight, Shield, ChevronDown, Eye, FileText, X } from "lucide-react";
+import { Search, Filter, CheckCircle, ThumbsUp, ThumbsDown, ArrowRight, Shield, ChevronDown, Eye, FileText, X, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { TIER_POINTS, TIER_COLORS, isAdminUser } from "@/lib/constants";
+import { showToast } from "@/lib/toast";
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -59,20 +61,6 @@ interface QuestionWithAnswers extends Question {
   answers: Answer[];
 }
 
-const TIER_COLORS = {
-  Bronze: "bg-sol-verified/10 text-sol-verified border-sol-verified/20",
-  Silver: "bg-blue-500/10 text-blue-600 border-blue-500/20",
-  Gold: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
-  Platinum: "bg-purple-500/10 text-purple-600 border-purple-500/20",
-};
-
-const TIER_POINTS = {
-  Bronze: 15,
-  Silver: 30,
-  Gold: 50,
-  Platinum: 75
-};
-
 export default function Explore() {
   const { user: authUser } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
@@ -95,11 +83,7 @@ export default function Explore() {
   })();
 
   // Check if current user is admin (dynamically evaluated)
-  const isAdmin = (() => {
-    if (!currentUser) return false;
-    const ADMIN_EMAILS = ['bt25csh068@iiitn.ac.in'];
-    return currentUser.role === 'ADMIN' || (currentUser.email && ADMIN_EMAILS.includes(currentUser.email));
-  })();
+  const isAdmin = isAdminUser(currentUser);
 
   useEffect(() => {
     fetchQuestions();
@@ -147,7 +131,7 @@ export default function Explore() {
     try {
       const token = localStorage.getItem('auth_token');
       if (!token) {
-        showToast2('Please sign in', 'error');
+        showToast('Please sign in', 'error');
         return;
       }
 
@@ -174,14 +158,14 @@ export default function Explore() {
             answers: selectedQuestion.answers.filter(a => a.id !== answerId)
           });
         }
-        showToast2('Answer deleted successfully', 'success');
+        showToast('Answer deleted successfully', 'success');
       } else {
         const data = await response.json();
-        showToast2(data.error || 'Failed to delete answer', 'error');
+        showToast(data.error || 'Failed to delete answer', 'error');
       }
     } catch (error) {
       console.error('Error deleting answer:', error);
-      showToast2('Network error. Please try again.', 'error');
+      showToast('Network error. Please try again.', 'error');
     }
   };
 
@@ -191,7 +175,7 @@ export default function Explore() {
 
 
       if (!token) {
-        showToast2('Please sign in to vote', 'error');
+        showToast('Please sign in to vote', 'error');
         return;
       }
 
@@ -217,7 +201,7 @@ export default function Explore() {
 
       } catch (parseError) {
         console.error('Failed to parse JSON:', parseError);
-        showToast2('Server error. Please try again.', 'error');
+        showToast('Server error. Please try again.', 'error');
         return;
       }
 
@@ -260,45 +244,36 @@ export default function Explore() {
           });
         }
 
-        showToast2('Vote recorded!', 'success');
+        showToast('Vote recorded!', 'success');
       } else {
 
         // Handle different error types
         if (response.status === 429) {
           // Rate limit - either daily limit or cooldown
           if (data.waitTime) {
-            showToast2(`Please wait ${data.waitTime} minutes before changing your vote`, 'error');
+            showToast(`Please wait ${data.waitTime} minutes before changing your vote`, 'error');
           } else {
-            showToast2(data.error || 'Rate limit exceeded', 'error');
+            showToast(data.error || 'Rate limit exceeded', 'error');
           }
         } else if (response.status === 401 || response.status === 403) {
           // Only clear token if it's actually an auth error, not insufficient credits
           if (data.error && data.error.includes('credits')) {
             // This is a credits error, not auth error
-            showToast2(data.error, 'error');
+            showToast(data.error, 'error');
           } else {
             // This is an actual auth error
             console.error('Auth error', response.status, data);
-            showToast2('Session expired. Please sign in again.', 'error');
+            showToast('Session expired. Please sign in again.', 'error');
             localStorage.removeItem('auth_token');
           }
         } else {
-          showToast2(data.error || 'Failed to vote', 'error');
+          showToast(data.error || 'Failed to vote', 'error');
         }
       }
     } catch (error) {
       console.error('Vote failed:', error);
-      showToast2('Network error. Please try again.', 'error');
+      showToast('Network error. Please try again.', 'error');
     }
-  };
-
-  const showToast2 = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
-    const toast = document.createElement('div');
-    const bgColor = type === 'success' ? 'bg-green-500' : type === 'error' ? 'bg-red-500' : 'bg-blue-500';
-    toast.className = `fixed bottom-4 right-4 ${bgColor} text-white px-6 py-3 rounded-lg shadow-lg z-50`;
-    toast.textContent = message;
-    document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 3000);
   };
 
 
@@ -508,14 +483,45 @@ function QuestionDetail({ question, onBack, onVote, getTimeAgo, handleDeleteAnsw
   handleDeleteAnswer: (answerId: number) => void;
 }) {
   const { user: currentUser } = useAuth();
+  const [challengeData, setChallengeData] = useState<{ open: boolean; answerId: number | null }>({ open: false, answerId: null });
+  const [challengeContent, setChallengeContent] = useState("");
+  const [submittingChallenge, setSubmittingChallenge] = useState(false);
 
-  // Robust Admin Check: Check Role, Email, OR ID
-  const ADMIN_EMAILS = ['bt25csh068@iiitn.ac.in'];
-  const isAdmin = currentUser && (
-    currentUser.role === 'ADMIN' ||
-    (currentUser.email && ADMIN_EMAILS.includes(currentUser.email)) ||
-    currentUser.id === 9
-  );
+  // Robust Admin Check using shared function
+  const isAdmin = isAdminUser(currentUser);
+
+  const handleSubmitChallenge = async () => {
+    if (!challengeData.answerId || !challengeContent) return;
+    setSubmittingChallenge(true);
+    try {
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        showToast('Please sign in to challenge', 'error');
+        return;
+      }
+      const response = await fetch(`${API_URL}/answers/${challengeData.answerId}/challenge`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ content: challengeContent })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        showToast('Challenge submitted! Admins will review your answer.', 'success');
+        setChallengeData({ open: false, answerId: null });
+        setChallengeContent("");
+      } else {
+        showToast(data.error || 'Failed to submit challenge', 'error');
+      }
+    } catch (error) {
+      console.error('Challenge failed:', error);
+      showToast('Network error. Please try again.', 'error');
+    } finally {
+      setSubmittingChallenge(false);
+    }
+  };
 
   const minUpvotes = question.answers.length > 0
     ? Math.min(...question.answers.map(a => a.answer_upvotes))
@@ -669,6 +675,18 @@ function QuestionDetail({ question, onBack, onVote, getTimeAgo, handleDeleteAnsw
                   <ThumbsDown className="w-4 h-4" />
                   {answer.answer_downvotes || 0}
                 </Button>
+                {/* Challenge Button - Only for users with 500+ credits on verified answers */}
+                {currentUser && (currentUser.credits || 0) >= 500 && (answer.is_verified || answer.is_maintainer_verified) && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1 text-orange-600 border-orange-200 hover:bg-orange-50"
+                    onClick={() => setChallengeData({ answerId: answer.id, open: true })}
+                  >
+                    <Shield className="w-4 h-4" />
+                    Challenge
+                  </Button>
+                )}
               </div>
             </div>
           </motion.div>
@@ -695,6 +713,45 @@ function QuestionDetail({ question, onBack, onVote, getTimeAgo, handleDeleteAnsw
             window.location.reload();
           }}
         />
+
+        {/* Challenge Dialog */}
+        {challengeData.open && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <div className="bg-background border rounded-xl p-6 max-w-lg w-full shadow-lg">
+              <h3 className="text-xl font-bold mb-2">Challenge Verified Answer</h3>
+              <div className="bg-orange-50 text-orange-800 text-sm p-3 rounded-lg mb-4 border border-orange-200">
+                <strong>Warning:</strong> Creating a challenge costs nothing, but abusing this feature may result in a ban.
+                Your answer will replace the current one if approved.
+              </div>
+
+              <textarea
+                value={challengeContent}
+                onChange={(e) => setChallengeContent(e.target.value)}
+                placeholder="Write your better answer here..."
+                className="w-full min-h-[200px] px-4 py-3 rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:border-sol-cyan focus:ring-1 focus:ring-sol-cyan/20 resize-none mb-2"
+              />
+
+              <div className="text-sm mb-4 text-muted-foreground flex justify-between">
+                <span>{challengeContent.length} chars</span>
+                <span>Min 50 chars</span>
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <Button variant="ghost" onClick={() => setChallengeData({ open: false, answerId: null })}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSubmitChallenge}
+                  disabled={submittingChallenge || challengeContent.length < 50}
+                  className="bg-orange-600 hover:bg-orange-700 text-white"
+                >
+                  {submittingChallenge ? <Loader2 className="animate-spin mr-2 w-4 h-4" /> : null}
+                  Submit Challenge
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div >
     </motion.div >
   );
@@ -746,15 +803,6 @@ function AnswerSubmissionForm({ questionId, difficulty, requiredUpvotes, onAnswe
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
-    const toast = document.createElement('div');
-    const bgColor = type === 'success' ? 'bg-green-500' : type === 'error' ? 'bg-red-500' : 'bg-blue-500';
-    toast.className = `fixed bottom-4 right-4 ${bgColor} text-white px-6 py-3 rounded-lg shadow-lg z-50`;
-    toast.textContent = message;
-    document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 3000);
   };
 
   return (

@@ -10,6 +10,9 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { CreditEngine, CREDIT_CONFIG } from './creditEngine.js';
+import { queryRAG, getRAGStatus } from './rag.js';
+import { extractAll as extractWebsiteContent } from './extract-website-content.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,7 +24,6 @@ const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key_123';
 const SALT_ROUNDS = 10;
 
-app.use(cors());
 app.use(cors());
 app.use(express.json());
 
@@ -393,9 +395,7 @@ app.post('/auth/login', async (req, res) => {
 });
 
 
-import { CreditEngine, CREDIT_CONFIG } from './creditEngine.js';
-import { queryRAG, getRAGStatus } from './rag.js';
-import { extractAll as extractWebsiteContent } from './extract-website-content.js';
+
 
 // -------------------------------------------------------------
 // QUESTION & ANSWER FLOW
@@ -450,19 +450,36 @@ app.post('/questions', authenticateToken, async (req, res) => {
 // 2. List Questions (Public)
 app.get('/questions', async (req, res) => {
     try {
-        const { status } = req.query; // 'contribute' or 'explore' - now same logic for both regarding verification
+        const { status } = req.query; // 'contribute' or 'explore'
         const db = await getDb();
 
-        // Only show VERIFIED questions to the public
-        const questions = await db.all(`
-            SELECT q.*, u.name as author_name,
-            (SELECT SUM(value) FROM votes WHERE target_id = q.id AND target_type = 'question') as vote_count,
-            (SELECT COUNT(*) FROM answers WHERE question_id = q.id AND is_verified = 1) as answer_count
-            FROM questions q 
-            JOIN users u ON q.author_id = u.id 
-            WHERE q.is_verified = 1
-            ORDER BY q.created_at DESC
-        `);
+        let questions;
+        if (status === 'explore') {
+            // Explore: Show VERIFIED questions with at least 1 answer
+            questions = await db.all(`
+                SELECT q.*, u.name as author_name,
+                (SELECT SUM(value) FROM votes WHERE target_id = q.id AND target_type = 'question') as vote_count,
+                (SELECT COUNT(*) FROM answers WHERE question_id = q.id AND is_verified = 1) as answer_count
+                FROM questions q 
+                JOIN users u ON q.author_id = u.id 
+                WHERE q.is_verified = 1 
+                AND (SELECT COUNT(*) FROM answers WHERE question_id = q.id) >= 1
+                ORDER BY q.created_at DESC
+            `);
+        } else {
+            // Contribute: Show UNVERIFIED questions OR verified questions with 0 answers
+            questions = await db.all(`
+                SELECT q.*, u.name as author_name,
+                (SELECT SUM(value) FROM votes WHERE target_id = q.id AND target_type = 'question') as vote_count,
+                (SELECT COUNT(*) FROM answers WHERE question_id = q.id AND is_verified = 1) as answer_count
+                FROM questions q 
+                JOIN users u ON q.author_id = u.id 
+                WHERE q.is_verified = 0 
+                OR (q.is_verified = 1 AND (SELECT COUNT(*) FROM answers WHERE question_id = q.id) = 0)
+                ORDER BY q.created_at DESC
+            `);
+        }
+
         res.json(questions);
     } catch (error) {
         console.error('Error in GET /questions:', error);
@@ -1839,13 +1856,13 @@ app.delete('/admin/goodies/:id', requireAdmin, async (req, res) => {
 // -------------------------------------------------------------
 
 // Submit challenge for a verified answer
-app.post('/api/answers/:id/challenge', authenticateToken, async (req, res) => {
+app.post('/answers/:id/challenge', authenticateToken, async (req, res) => {
     try {
         const { id: answerId } = req.params;
-        const { challenge_content } = req.body;
+        const { content } = req.body;
         const { userId } = req.user;
 
-        if (!challenge_content || challenge_content.trim().length === 0) {
+        if (!content || content.trim().length === 0) {
             return res.status(400).json({ error: 'Challenge content is required' });
         }
 
@@ -1870,7 +1887,7 @@ app.post('/api/answers/:id/challenge', authenticateToken, async (req, res) => {
         const result = await db.run(`
             INSERT INTO answer_challenges (answer_id, challenger_id, challenge_content, status)
             VALUES (?, ?, ?, 'pending')
-        `, answerId, userId, challenge_content);
+        `, answerId, userId, content);
 
         console.log(`[Challenge] User ${userId} challenged answer ${answerId}`);
 
@@ -1893,7 +1910,7 @@ app.get('/admin/challenges', requireAdmin, async (req, res) => {
                 ac.*,
                 a.content as original_content,
                 a.question_id,
-                q.question_text,
+                q.title as question_title,
                 u.name as challenger_name,
                 u.email as challenger_email
             FROM answer_challenges ac
@@ -2023,165 +2040,6 @@ app.put('/admin/challenges/:id/reject', requireAdmin, async (req, res) => {
     // Extract website content before initializing RAG
     console.log('[SERVER] Extracting website content...');
     extractWebsiteContent();
-
-
-    // -------------------------------------------------------------
-    // CHALLENGE ANSWER APIs
-    // -------------------------------------------------------------
-
-    // 1. Submit Challenge
-    app.post('/answers/:id/challenge', authenticateToken, async (req, res) => {
-        try {
-            const answerId = req.params.id;
-            const { content } = req.body;
-            const { userId } = req.user;
-
-            if (!content || content.length < 50) {
-                return res.status(400).json({ error: 'Challenge content must be at least 50 characters' });
-            }
-
-            const db = await getDb();
-
-            // Check User Credits (500+ required)
-            const user = await db.get('SELECT credits, role FROM users WHERE id = ?', userId);
-            if ((!user.credits || user.credits < 500) && user.role !== 'ADMIN') {
-                return res.status(403).json({ error: 'You need 500+ credits to challenge answers' });
-            }
-
-            // Check Answer (Must be verified)
-            const answer = await db.get('SELECT is_maintainer_verified, author_id FROM answers WHERE id = ?', answerId);
-            if (!answer) return res.status(404).json({ error: 'Answer not found' });
-            if (!answer.is_maintainer_verified) return res.status(400).json({ error: 'Only verified answers can be challenged' });
-
-            // Create Challenge
-            const result = await db.run(
-                'INSERT INTO answer_challenges (answer_id, challenger_id, challenge_content) VALUES (?, ?, ?)',
-                answerId, userId, content
-            );
-
-            res.json({ message: 'Challenge submitted for review', challengeId: result.lastID });
-
-        } catch (error) {
-            console.error('Error in POST /answers/:id/challenge:', error);
-            res.status(500).json({ error: 'Internal server error' });
-        }
-    });
-
-    // 2. List Challenges (Admin)
-    app.get('/admin/challenges', authenticateToken, requireAdmin, async (req, res) => {
-        try {
-            const db = await getDb();
-            const challenges = await db.all(`
-            SELECT 
-                ac.*,
-                q.title as question_title,
-                a.content as original_answer_content,
-                u.name as challenger_name,
-                u.email as challenger_email
-            FROM answer_challenges ac
-            JOIN answers a ON ac.answer_id = a.id
-            JOIN questions q ON a.question_id = q.id
-            JOIN users u ON ac.challenger_id = u.id
-            ORDER BY ac.created_at DESC
-        `);
-            res.json(challenges);
-        } catch (error) {
-            console.error('Error in GET /admin/challenges:', error);
-            res.status(500).json({ error: 'Internal server error' });
-        }
-    });
-
-    // 3. Approve Challenge (Admin)
-    app.put('/admin/challenges/:id/approve', authenticateToken, requireAdmin, async (req, res) => {
-        try {
-            const challengeId = req.params.id;
-            const adminId = req.user.userId;
-            const db = await getDb();
-            const engine = new CreditEngine(db);
-
-            await db.exec('BEGIN TRANSACTION');
-            try {
-                const challenge = await db.get('SELECT * FROM answer_challenges WHERE id = ?', challengeId);
-                if (!challenge) {
-                    await db.exec('ROLLBACK');
-                    return res.status(404).json({ error: 'Challenge not found' });
-                }
-                if (challenge.status !== 'pending') {
-                    await db.exec('ROLLBACK');
-                    return res.status(400).json({ error: 'Challenge already processed' });
-                }
-
-                const targetAnswer = await db.get('SELECT * FROM answers WHERE id = ?', challenge.answer_id);
-                if (!targetAnswer) {
-                    await db.exec('ROLLBACK');
-                    return res.status(404).json({ error: 'Original answer not found' });
-                }
-
-                // 1. Archive Original Answer (Create a unverified copy)
-                const archiveResult = await db.run(
-                    `INSERT INTO answers (question_id, author_id, content, is_verified, created_at, difficulty) 
-                 VALUES (?, ?, ?, 0, ?, ?)`,
-                    targetAnswer.question_id, targetAnswer.author_id, targetAnswer.content, targetAnswer.created_at, targetAnswer.difficulty || 'Bronze'
-                );
-                const archiveId = archiveResult.lastID;
-
-                // 2. Update Challenge Record
-                await db.run(
-                    `UPDATE answer_challenges 
-                 SET status = 'approved', original_answer_id = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP 
-                 WHERE id = ?`,
-                    archiveId, adminId, challengeId
-                );
-
-                // 3. Update Target Answer (Replace with Challenger's content and ID)
-                // Note: We keep the same Answer ID so links (votes etc) preserved? 
-                // Wait, votes usually apply to the logic. If content changes drastically, votes might be invalid.
-                // But usually we preserve votes or reset them. I'll preserve them for simplicity unless requested.
-                // I WILL update author_id to Challenger.
-                await db.run(
-                    'UPDATE answers SET content = ?, author_id = ?, is_verified = 1 WHERE id = ?',
-                    challenge.challenge_content, challenge.challenger_id, challenge.answer_id
-                );
-
-                // 4. Award Credits to Challenger
-                // Awarding 100 credits for successful challenge
-                await engine.awardCredits(challenge.challenger_id, 100, `Challenge Approved (ID: ${challengeId})`);
-
-                await db.exec('COMMIT');
-                res.json({ message: 'Challenge approved, answer updated, and credits awarded.' });
-
-            } catch (e) {
-                await db.exec('ROLLBACK');
-                throw e;
-            }
-        } catch (error) {
-            console.error('Error in Approve Challenge:', error);
-            res.status(500).json({ error: 'Internal server error' });
-        }
-    });
-
-    // 4. Reject Challenge (Admin)
-    app.put('/admin/challenges/:id/reject', authenticateToken, requireAdmin, async (req, res) => {
-        try {
-            const challengeId = req.params.id;
-            const { admin_notes } = req.body;
-            const adminId = req.user.userId;
-            const db = await getDb();
-
-            await db.run(
-                `UPDATE answer_challenges 
-             SET status = 'rejected', admin_notes = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP 
-             WHERE id = ?`,
-                admin_notes, adminId, challengeId
-            );
-
-            res.json({ message: 'Challenge rejected' });
-
-        } catch (error) {
-            console.error('Error in Reject Challenge:', error);
-            res.status(500).json({ error: 'Internal server error' });
-        }
-    });
 
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`Server running on port ${PORT}`);

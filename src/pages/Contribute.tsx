@@ -8,6 +8,8 @@ import { BookOpen, GitMerge, CheckCircle, Star, ArrowRight, Clock, FileText, Tro
 import { Link, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { TIER_POINTS, TIER_COLORS, isAdminUser } from "@/lib/constants";
+import { showToast } from "@/lib/toast";
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -47,20 +49,6 @@ interface Question {
   created_at: string;
   views: number;
 }
-
-const TIER_POINTS = {
-  Bronze: 15,
-  Silver: 30,
-  Gold: 50,
-  Platinum: 75
-};
-
-const TIER_COLORS = {
-  Bronze: "bg-sol-verified/10 text-sol-verified border-sol-verified/20",
-  Silver: "bg-blue-500/10 text-blue-600 border-blue-500/20",
-  Gold: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
-  Platinum: "bg-purple-500/10 text-purple-600 border-purple-500/20",
-};
 
 export default function Contribute() {
   const { user: authUser } = useAuth();
@@ -170,15 +158,6 @@ export default function Contribute() {
     }
   };
 
-  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
-    const toast = document.createElement('div');
-    const bgColor = type === 'success' ? 'bg-green-500' : type === 'error' ? 'bg-red-500' : 'bg-blue-500';
-    toast.className = `fixed bottom-4 right-4 ${bgColor} text-white px-6 py-3 rounded-lg shadow-lg z-50`;
-    toast.textContent = message;
-    document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 3000);
-  };
-
   const getTimeAgo = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -218,15 +197,12 @@ export default function Contribute() {
 
   // Check if user is admin
   const isAdmin = () => {
+    if (authUser) {
+      return isAdminUser(authUser);
+    }
     try {
-      if (authUser) {
-        const ADMIN_EMAILS = ['bt25csh068@iiitn.ac.in'];
-        return authUser.role === 'ADMIN' || (authUser.email && ADMIN_EMAILS.includes(authUser.email));
-      }
-
       const user = JSON.parse(localStorage.getItem('user') || '{}');
-      const ADMIN_EMAILS = ['bt25csh068@iiitn.ac.in'];
-      return user.role === 'ADMIN' || (user.email && ADMIN_EMAILS.includes(user.email));
+      return isAdminUser(user);
     } catch {
       return false;
     }

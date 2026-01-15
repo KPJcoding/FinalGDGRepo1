@@ -5,6 +5,8 @@ import { motion } from "framer-motion";
 import { Shield, CheckCircle, XCircle, Clock, Users, FileText, TrendingUp, Loader2, PlayCircle, Trophy, Trash2, AlertCircle, Gift, Plus, Edit, Package, Coins } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { TIER_COLORS, isAdminUser } from "@/lib/constants";
+import { showToast } from "@/lib/toast";
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -87,13 +89,6 @@ interface Goodie {
     total_revenue?: number;
 }
 
-const TIER_COLORS = {
-    Bronze: "bg-sol-verified/10 text-sol-verified border-sol-verified/20",
-    Silver: "bg-blue-500/10 text-blue-600 border-blue-500/20",
-    Gold: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
-    Platinum: "bg-purple-500/10 text-purple-600 border-purple-500/20",
-};
-
 export default function AdminDashboard() {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
@@ -153,10 +148,7 @@ export default function AdminDashboard() {
 
         try {
             const user = JSON.parse(localStorage.getItem('user') || '{}');
-            const ADMIN_EMAILS = ['bt25csh068@iiitn.ac.in'];
-            const isAdmin = user.role === 'ADMIN' || (user.email && ADMIN_EMAILS.includes(user.email));
-
-            if (!isAdmin) {
+            if (!isAdminUser(user)) {
                 navigate('/');
             }
         } catch (e) {
@@ -622,15 +614,6 @@ export default function AdminDashboard() {
             category: 'Other'
         });
         setEditingGoodie(null);
-    };
-
-    const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
-        const toast = document.createElement('div');
-        const bgColor = type === 'success' ? 'bg-green-500' : type === 'error' ? 'bg-red-500' : 'bg-blue-500';
-        toast.className = `fixed bottom-4 right-4 ${bgColor} text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-in slide-in-from-bottom-5`;
-        toast.textContent = message;
-        document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 3000);
     };
 
     const getTimeAgo = (dateString: string) => {

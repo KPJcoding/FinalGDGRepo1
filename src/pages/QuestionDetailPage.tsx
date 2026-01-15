@@ -146,7 +146,7 @@ export default function QuestionDetailPage() {
                         >
                             <ThumbsDown className="w-4 h-4 mr-1" /> {question.question_downvotes || 0}
                         </Button>
-                        {question.is_verified === 1 && (
+                        {question.is_verified === 1 && answers.length >= 1 && (
                             <Badge className="bg-sol-verified/10 text-sol-verified border-sol-verified/30">
                                 <CheckCircle className="w-3 h-3 mr-1" />
                                 Promoted to Explore

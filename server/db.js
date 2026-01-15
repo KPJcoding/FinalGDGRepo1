@@ -58,6 +58,7 @@ export async function getDb() {
       author_id INTEGER NOT NULL,
       content TEXT NOT NULL,
       is_accepted INTEGER DEFAULT 0,
+      is_verified INTEGER DEFAULT 0,
       answer_upvotes INTEGER DEFAULT 0,
       answer_downvotes INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -166,6 +167,10 @@ export async function getDb() {
       console.log("[DB] Migrating: Adding 'is_maintainer_verified' column to 'answers'");
       await dbInstance.exec("ALTER TABLE answers ADD COLUMN is_maintainer_verified INTEGER DEFAULT 0");
     }
+    if (!answerColumns.some(col => col.name === 'is_verified')) {
+      console.log("[DB] Migrating: Adding 'is_verified' column to 'answers'");
+      await dbInstance.exec("ALTER TABLE answers ADD COLUMN is_verified INTEGER DEFAULT 0");
+    }
     if (!answerColumns.some(col => col.name === 'answer_upvotes')) {
       console.log("[DB] Migrating: Adding 'answer_upvotes' column to 'answers'");
       await dbInstance.exec("ALTER TABLE answers ADD COLUMN answer_upvotes INTEGER DEFAULT 0");
@@ -225,16 +230,28 @@ export async function getDb() {
         FOREIGN KEY (reporter_id) REFERENCES users(id)
       );
     `);
-    console.log("[DB] Migrating difficulty values to difficulty_tier");
+    console.log("[DB] Migrating difficulty values to tier system");
+    // Update difficulty_tier column
     await dbInstance.exec(`
       UPDATE questions 
       SET difficulty_tier = CASE 
         WHEN difficulty = 'Easy' THEN 'Bronze'
         WHEN difficulty = 'Medium' THEN 'Silver'
         WHEN difficulty = 'Hard' THEN 'Gold'
-        ELSE 'Bronze'
+        ELSE difficulty_tier
       END
-      WHERE difficulty_tier = 'Bronze' AND difficulty IN ('Easy', 'Medium', 'Hard')
+      WHERE difficulty IN ('Easy', 'Medium', 'Hard')
+    `);
+    // Also update the difficulty column itself to use tier names
+    await dbInstance.exec(`
+      UPDATE questions 
+      SET difficulty = CASE 
+        WHEN difficulty = 'Easy' THEN 'Bronze'
+        WHEN difficulty = 'Medium' THEN 'Silver'
+        WHEN difficulty = 'Hard' THEN 'Gold'
+        ELSE difficulty
+      END
+      WHERE difficulty IN ('Easy', 'Medium', 'Hard')
     `);
 
     // Migration: Check for answer_challenges columns
