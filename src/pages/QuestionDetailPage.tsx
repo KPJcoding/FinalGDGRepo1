@@ -221,7 +221,7 @@ export default function QuestionDetailPage() {
                                     )}
 
                                     {/* Challenge Button (500+ credits) */}
-                                    {currentUser && currentUser.credits >= 500 && ans.is_maintainer_verified === 1 && (
+                                    {currentUser && currentUser.credits >= 500 && ans.is_maintainer_verified === 1 && question.is_verified === 1 && (
                                         <Button
                                             size="sm"
                                             variant="outline"

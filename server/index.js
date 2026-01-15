@@ -2049,9 +2049,9 @@ app.put('/admin/challenges/:id/reject', requireAdmin, async (req, res) => {
             }
 
             // Check Answer (Must be verified)
-            const answer = await db.get('SELECT is_verified, author_id FROM answers WHERE id = ?', answerId);
+            const answer = await db.get('SELECT is_maintainer_verified, author_id FROM answers WHERE id = ?', answerId);
             if (!answer) return res.status(404).json({ error: 'Answer not found' });
-            if (!answer.is_verified) return res.status(400).json({ error: 'Only verified answers can be challenged' });
+            if (!answer.is_maintainer_verified) return res.status(400).json({ error: 'Only verified answers can be challenged' });
 
             // Create Challenge
             const result = await db.run(
